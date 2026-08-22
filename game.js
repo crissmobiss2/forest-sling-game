@@ -1452,7 +1452,7 @@ function screenMenu() {
   Audio.startMusic(WORLDS[worldIndex(save.highest)]);
   const s = el("div", { class: "screen", id: "screen-menu" });
   const pr = save.prestige || 0;
-  s.append(
+  s.append(...[
     el("div", { class: "logo" }, "FOREST SLING"),
     el("div", { class: "tagline" }, "Sling · Smash · Upgrade · Conquer"),
     el("div", { class: "progress-pill" }, `Level ${save.highest}/100  ·  Slingshot Lv ${save.power}  ·  🪙 ${fmt(save.coins)}`),
@@ -1469,7 +1469,7 @@ function screenMenu() {
       ),
     ),
     el("div", { class: "footer-note" }, "No ads · No pay-to-win · Just fun progression"),
-  );
+  ].filter(Boolean));
   checkDaily();
   return s;
 }
