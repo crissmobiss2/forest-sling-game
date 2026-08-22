@@ -1449,6 +1449,44 @@ function showScreen(node) {
 function chip(icon, val, cls) { return el("div", { class: "chip " + cls }, el("span", { class: "ic" }, icon), fmt(val)); }
 function currencyChips() { return el("div", { class: "chips" }, chip("🪙", save.coins, "coin"), chip("💎", save.gems || 0, "gem")); }
 
+// ---- PWA install ----
+let deferredInstall = null;
+function isStandalone() { return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true; }
+function isIOS() { return /iphone|ipad|ipod/i.test(navigator.userAgent); }
+function installBtn() {
+  if (isStandalone()) return null;                    // already installed as an app
+  return el("button", { class: "btn-gold", onclick: () => { click(); promptInstall(); } }, "📲  Install App");
+}
+async function promptInstall() {
+  if (deferredInstall) {
+    deferredInstall.prompt();
+    try { await deferredInstall.userChoice; } catch (e) {}
+    deferredInstall = null;
+    if (G.state === "menu") toMenu();
+  } else {
+    installInstructions();
+  }
+}
+function installInstructions() {
+  const ios = isIOS();
+  const step = (n, ic, tx) => el("div", { class: "tut-step" }, el("div", { class: "tn" }, n), el("div", { class: "ti" }, ic), el("div", { class: "tx" }, tx));
+  modal(el("div", { class: "modal" },
+    el("h2", {}, "📲 Install Forest Sling"),
+    ios
+      ? el("div", { class: "tut-steps" },
+          step("1", "⬆️", "Tap the Share button in Safari's bottom toolbar."),
+          step("2", "➕", "Scroll down and tap “Add to Home Screen.”"),
+          step("3", "✅", "Tap Add — then open it from your home screen."))
+      : el("div", { class: "tut-steps" },
+          step("1", "⋮", "Open your browser's menu (⋮ or ⋯, usually top-right)."),
+          step("2", "📲", "Tap “Add to Home screen” or “Install app.”"),
+          step("3", "✅", "Confirm — it installs and launches like a native app.")),
+    el("div", { class: "sub", style: "margin-top:8px" },
+      ios ? "Install works in Safari (not in-app browsers)."
+          : "Important: open this page in Chrome itself. If you tapped a link inside another app (messages, etc.), use its “Open in Chrome” option first."),
+    el("button", { class: "btn-primary btn-block", style: "margin-top:12px", onclick: () => { closeModal(); } }, "Got it")));
+}
+
 function screenMenu() {
   Audio.startMusic(WORLDS[worldIndex(save.highest)]);
   const s = el("div", { class: "screen", id: "screen-menu" });
@@ -1461,6 +1499,7 @@ function screenMenu() {
     el("div", { class: "menu-buttons" },
       el("button", { class: "btn-primary btn-lg", onclick: () => { click(); showScreen(screenLevels()); } }, "▶  PLAY"),
       el("button", { class: "btn-gold", onclick: () => { click(); showScreen(screenHowTo()); } }, "❓  How to Play"),
+      installBtn(),
       canPrestige() ? el("button", { class: "btn-gold", onclick: () => { click(); confirmPrestige(() => toMenu()); } }, "🌟  Prestige — Ascend") : null,
       el("div", { class: "menu-grid" },
         el("button", { onclick: () => { click(); showScreen(screenShop()); } }, "🛒 Shop"),
@@ -1811,6 +1850,17 @@ function init() {
   toMenu();
   requestAnimationFrame(loop);
   window.addEventListener("pointerdown", () => Audio.init(), { once: false });
+  // Capture the install prompt so the in-menu "Install App" button can trigger it.
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstall = e;
+    if (G.state === "menu" && curScreen && curScreen.id === "screen-menu") toMenu();
+  });
+  window.addEventListener("appinstalled", () => {
+    deferredInstall = null;
+    toast("✅ Installed! Launch Forest Sling from your home screen.");
+    if (G.state === "menu") toMenu();
+  });
 }
 init();
 
