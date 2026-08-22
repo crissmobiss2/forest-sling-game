@@ -1187,7 +1187,7 @@ function buildHUD() {
   uiLayer.append(hud);
   comboEl = el("div", { id: "combo" }, el("div", { class: "big" }), el("div", { class: "mult" }));
   fxLayer.append(comboEl);
-  hintEl = el("div", { id: "hint" }, el("span", { class: "hint-hand" }, "👆"), el("span", {}, "Drag back & release to launch!"));
+  hintEl = el("div", { id: "hint" }, el("span", { class: "hint-hand" }, "👇"), el("span", {}, "Pull the sling DOWN & BACK, then release to fling forward"));
   hintEl.style.display = "none";
   fxLayer.append(hintEl);
 }
