@@ -87,7 +87,7 @@ function defaultSave() {
     ownedBalls: ["wood"], ball: "wood",
     stars: {}, achs: [],
     stats: { trees: 0, bosses: 0, bestcombo: 0, shots: 0, levels: 0 },
-    settings: { music: 0.5, sfx: 0.8, shake: true, damageNums: true },
+    settings: { music: 0.5, sfx: 0.8, shake: true, damageNums: true, haptics: true },
   };
 }
 function loadSave() {
@@ -276,8 +276,13 @@ function generateLevel(lvl) {
   const count = Math.min(4 + localLevel(lvl) + worldIndex(lvl), 22);
   let x = 500 + rng() * 70;
   for (let i = 0; i < count; i++) {
-    const hp = (11 + lvl * 4 + worldIndex(lvl) * 7) * rand(0.85, 1.2);
-    addTree(x, w, hp, rng, true);
+    let hp = (11 + lvl * 4 + worldIndex(lvl) * 7) * rand(0.85, 1.2);
+    let kind = "normal";
+    const kr = rng();
+    if (lvl >= 2 && kr < 0.05) kind = "gold";
+    else if (lvl >= 3 && kr < 0.19) { kind = "tnt"; hp *= 0.7; }
+    else if (lvl >= 7 && kr < 0.30) { kind = "armor"; hp *= 1.3; }
+    addTree(x, w, hp, rng, true, kind);
     let gap = 112;
     gap *= rng() < 0.35 ? rand(0.5, 0.72) : rand(0.95, 1.45);
     x += gap;
@@ -306,12 +311,12 @@ function generateDecor(rng) {
   G.decor.sort((a, b) => a.x - b.x);
 }
 
-function addTree(x, w, hp, rng, counts) {
+function addTree(x, w, hp, rng, counts, kind) {
   const scale = rand(0.9, 1.25);
   const pine = (rng ? rng() : Math.random()) < 0.4;
   const trunkH = 60 * scale, trunkW = 16 * scale, canopyR = 48 * scale;
   G.trees.push({
-    x, hp, maxHp: hp, world: w, pine, scale, trunkH, trunkW, canopyR,
+    x, hp, maxHp: hp, world: w, pine, scale, trunkH, trunkW, canopyR, kind: kind || "normal",
     canopyCy: GROUND_Y - trunkH - canopyR * 0.55,
     shakeT: 0, hurtT: 0, flashT: 0, dead: false, topple: 0, fallDir: 1, hitCd: {}, counts,
     a: 1, phase: Math.random() * 6.28, squash: 0,
@@ -440,6 +445,8 @@ function dealDamage(t, b, spd, at) {
   let dmg = b.data.dmg * damageFactor(save.power) * sf;
   let crit = Math.random() < (b.data.effect === "crit" ? 0.35 : 0.06);
   if (crit) dmg *= 2;
+  // Armored trees shrug off light hits — reward heavy/explosive balls & crits.
+  if (t.kind === "armor" && !crit && b.data.effect !== "heavy" && b.data.effect !== "explode") { dmg *= 0.6; if (Math.random() < 0.4) sparkClang(at); }
   const destroyed = applyTreeDamage(t, dmg, crit, at, false);
   impactFX(at.x, at.y, spd, b.data.color);
 
@@ -501,8 +508,20 @@ function destroyTree(t, chain) {
   showCombo();
   const mult = 1 + Math.min(G.combo, 30) * 0.1 + worldIndex(G.level) * 0.05;
   let reward = Math.round((5 + G.level * 0.6) * mult * (chain ? 1.5 : 1));
+  if (t.kind === "gold") {
+    reward = Math.round(reward * 10);
+    for (let i = 0; i < 22; i++) { const a = rand(0, 6.28), s = rand(60, 260); G.particles.push({ x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60, life: rand(0.5, 1), max: 1, r: rand(2, 5), col: "#ffcf4a", g: 400, glow: true }); }
+    ringFX(cx, cy, t.canopyR * 2.4, "#ffcf4a", 6); toast("💰 Golden Tree!  +" + fmt(reward) + " 🪙"); Audio.sfx("gem");
+  }
   G.coinsEarned += reward; addCoins(reward);
   coinPop(cx, cy, reward);
+  vibrate(t.kind === "tnt" ? 26 : 12);
+
+  // TNT: devastating chain explosion (can set off other TNT for cascades)
+  if (t.kind === "tnt") {
+    explosionFX(cx, cy, 190, "#ff5a2c"); areaDamage(cx, cy, 205, t.maxHp * 1.4 + 70);
+    Audio.sfx("explosion"); shake(18); G.hitstopT = Math.max(G.hitstopT, 0.08); ringFX(cx, cy, 230, "#ffd66a", 8);
+  }
 
   // chain reaction
   if (t.counts || chain) {
@@ -538,7 +557,7 @@ function damageBoss(boss, dmg, at) {
   if (hitWeak) explosionFX(at.x, at.y, 40, "#ffe14d");
   boss.hp = Math.max(0, boss.hp - dmg); boss.flash = 0.12; boss.wob = (at.x < boss.x ? 1 : -1) * 14;
   if (save.settings.damageNums) popup(at.x, at.y - 20, Math.round(dmg), hitWeak ? "#ffe14d" : "#fff", hitWeak ? 24 : 18);
-  Audio.sfx("bossHit"); shake(6);
+  Audio.sfx("bossHit"); shake(6); vibrate(hitWeak ? 18 : 9);
   refreshBossBar();
   // phases
   const ratio = boss.hp / boss.maxHp, np = ratio <= 0.33 ? 2 : ratio <= 0.66 ? 1 : 0;
@@ -547,7 +566,7 @@ function damageBoss(boss, dmg, at) {
 }
 function killBoss(boss) {
   boss.dead = true; statAdd("bosses", 1);
-  Audio.sfx("bossDie"); shake(22); flash("#fff", 0.5);
+  Audio.sfx("bossDie"); shake(22); flash("#fff", 0.5); vibrate([40, 30, 80]);
   for (let i = 0; i < 40; i++) G.particles.push({ x: boss.x + rand(-60, 60), y: boss.y + rand(-60, 60), vx: rand(-300, 300), vy: rand(-400, 100), life: rand(0.6, 1.2), max: 1.2, r: rand(3, 8), col: boss.world.leaf, g: 500 });
   setTimeout(() => { if (G.state === "play") winLevel(); }, 900);
 }
@@ -575,12 +594,14 @@ function openChest(c) {
 // ------------------------------------------------------------------ FX ------
 const easeOut = t => 1 - Math.pow(1 - clamp(t, 0, 1), 3);
 function ringFX(x, y, maxR, col, width) { G.rings.push({ x, y, r: maxR * 0.12, maxR, t: 0, life: 0.5, col, width: width || 4 }); }
+function vibrate(ms) { if (save.settings.haptics !== false && navigator.vibrate) { try { navigator.vibrate(ms); } catch (e) {} } }
+function sparkClang(at) { for (let i = 0; i < 6; i++) { const a = rand(-1.2, 1.2) - 1.57; G.particles.push({ x: at.x, y: at.y, vx: Math.cos(a) * rand(120, 260), vy: Math.sin(a) * rand(120, 260), life: 0.3, max: 0.3, r: rand(1.5, 3), col: "#ffe9a0", g: 400, glow: true }); } Audio.sfx("bossHit"); vibrate(8); }
 
 function impactFX(x, y, spd, color) {
   const n = clamp(4 + spd / 100, 5, 16) | 0;
   for (let i = 0; i < n; i++) { const a = rand(0, 6.28), s = rand(30, spd * 0.5); G.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, life: rand(0.25, 0.55), max: 0.55, r: rand(1.5, 3.5), col: color, g: 500, glow: true }); }
   ringFX(x, y, clamp(spd * 0.08, 16, 54), color, 3);
-  if (spd > 380) { Audio.sfx("impactHard"); shake(clamp(spd / 120, 3, 9)); } else Audio.sfx("impact");
+  if (spd > 380) { Audio.sfx("impactHard"); shake(clamp(spd / 120, 3, 9)); vibrate(7); } else Audio.sfx("impact");
 }
 function spawnDust(x, y, n) { for (let i = 0; i < n; i++) G.particles.push({ x: x + rand(-12, 12), y, vx: rand(-70, 70), vy: rand(-90, -20), life: rand(0.4, 0.8), max: 0.8, r: rand(5, 11), col: "#cbb890", g: 90, shape: "smoke", rot: rand(0, 6.28), vrot: rand(-2, 2) }); }
 function treeBreakFX(x, y, t) {
@@ -697,9 +718,20 @@ function turnEnded() {
 }
 function expireBall() {
   const b = G.ball; if (!b || b.dead) return; b.dead = true;
-  if (b.kills >= 3) { toast("Perfect shot!"); Audio.sfx("win"); }
+  if (b.kills >= 2) {
+    const label = b.kills >= 6 ? "UNREAL! 🔥" : b.kills >= 5 ? "INCREDIBLE!" : b.kills >= 4 ? "AMAZING!" : b.kills >= 3 ? "GREAT SHOT!" : "DOUBLE!";
+    const bonus = b.kills * 6 * (1 + worldIndex(G.level));
+    addCoins(bonus); G.coinsEarned += bonus;
+    bigCallout(label, "+" + fmt(bonus) + " 🪙");
+    Audio.sfx("gem"); vibrate(20);
+    if (b.kills >= 3) flash("rgba(255,220,120,0.12)", 0.3);
+  }
   G.ball = null; cam.follow = false;
   turnEnded();
+}
+function bigCallout(title, sub) {
+  const e = el("div", { class: "bigcallout" }, el("div", { class: "bc-title" }, title), sub ? el("div", { class: "bc-sub" }, sub) : null);
+  fxLayer.append(e); setTimeout(() => e.remove(), 1300);
 }
 function winLevel() {
   if (G.ended) return; G.ended = true; G.state = "over";
@@ -976,22 +1008,40 @@ function drawTree(t) {
   ctx.fillStyle = tg; roundRect(-t.trunkW / 2, -t.trunkH, t.trunkW, t.trunkH + 4, 3);
   ctx.strokeStyle = shade(w.trunk, -0.28); ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(-t.trunkW * 0.08, -t.trunkH * 0.85); ctx.lineTo(-t.trunkW * 0.08, -5); ctx.stroke();
-  // canopy (with squash bounce)
+  // canopy (with squash bounce) — colours vary by special kind
+  let leaf = w.leaf, leaf2 = w.leaf2;
+  if (t.kind === "gold") { leaf = "#ffd24d"; leaf2 = "#e0a81f"; }
+  else if (t.kind === "tnt") { leaf = "#d0432a"; leaf2 = "#8a1f12"; }
+  else if (t.kind === "armor") { leaf = "#98a2ae"; leaf2 = "#5e6772"; }
+  const roundCanopy = !t.pine || t.kind !== "normal";
   ctx.save(); ctx.translate(0, cy); ctx.scale(1 + sq * 0.12, 1 - sq * 0.14); ctx.translate(0, -cy);
-  if (t.pine) {
+  if (!roundCanopy) {
     for (let i = 0; i < 3; i++) {
       const by = -t.trunkH + 6 - i * r * 0.85, half = r * (1 - i * 0.22), top = by - r * 1.3;
-      const pg = ctx.createLinearGradient(0, top, 0, by); pg.addColorStop(0, shade(w.leaf, 0.16)); pg.addColorStop(1, i % 2 ? w.leaf2 : w.leaf);
+      const pg = ctx.createLinearGradient(0, top, 0, by); pg.addColorStop(0, shade(leaf, 0.16)); pg.addColorStop(1, i % 2 ? leaf2 : leaf);
       ctx.fillStyle = pg; tri(-half, by, half, by, 0, top);
     }
   } else {
-    ctx.fillStyle = w.leaf2; circle(-r * 0.58, cy + r * 0.24, r * 0.72); circle(r * 0.58, cy + r * 0.24, r * 0.72); circle(0, cy + r * 0.38, r * 0.68);
+    ctx.fillStyle = leaf2; circle(-r * 0.58, cy + r * 0.24, r * 0.72); circle(r * 0.58, cy + r * 0.24, r * 0.72); circle(0, cy + r * 0.38, r * 0.68);
     const rg = ctx.createRadialGradient(-r * 0.3, cy - r * 0.34, r * 0.12, 0, cy, r * 1.25);
-    rg.addColorStop(0, shade(w.leaf, 0.22)); rg.addColorStop(0.6, w.leaf); rg.addColorStop(1, shade(w.leaf, -0.1));
+    rg.addColorStop(0, shade(leaf, 0.22)); rg.addColorStop(0.6, leaf); rg.addColorStop(1, shade(leaf, -0.1));
     ctx.fillStyle = rg; circle(0, cy, r);
     ctx.fillStyle = "rgba(255,255,255,0.10)"; circle(-r * 0.28, cy - r * 0.42, r * 0.26);
   }
-  if (t.flashT > 0) { ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = clamp(t.flashT / 0.12, 0, 1) * 0.55; ctx.fillStyle = "#fff"; circle(0, t.pine ? cy - r * 0.2 : cy, r * 1.02); ctx.restore(); }
+  if (t.kind === "armor") {
+    ctx.fillStyle = "rgba(28,34,42,0.6)";
+    for (const [ox, oy] of [[-0.45, -0.1], [0.45, -0.1], [0, 0.36], [-0.26, 0.5], [0.26, 0.5]]) circle(ox * r, cy + oy * r, r * 0.08);
+    ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, cy, r * 0.8, -2.3, -1.0); ctx.stroke();
+  } else if (t.kind === "gold") {
+    ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = 0.4 + 0.2 * Math.sin(cloudT * 6 + t.phase);
+    const gg = ctx.createRadialGradient(0, cy, r * 0.3, 0, cy, r * 1.5); gg.addColorStop(0, "#ffe98a"); gg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = gg; circle(0, cy, r * 1.5); ctx.restore(); ctx.fillStyle = "#fff6c8"; circle(-r * 0.2, cy - r * 0.3, r * 0.12);
+  } else if (t.kind === "tnt") {
+    const ty2 = cy - r; ctx.strokeStyle = "#3a2a1a"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, ty2); ctx.quadraticCurveTo(8, ty2 - 14, 3, ty2 - 22); ctx.stroke();
+    ctx.save(); ctx.globalCompositeOperation = "lighter"; const spk = 0.7 + 0.3 * Math.sin(cloudT * 30 + t.phase);
+    ctx.fillStyle = "#ffd66a"; circle(3, ty2 - 22, 4 * spk + 2); ctx.fillStyle = "#fff"; circle(3, ty2 - 22, 2 * spk); ctx.restore();
+  }
+  if (t.flashT > 0) { ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = clamp(t.flashT / 0.12, 0, 1) * 0.55; ctx.fillStyle = "#fff"; circle(0, roundCanopy ? cy : cy - r * 0.2, r * 1.02); ctx.restore(); }
   ctx.restore();
   // health bar
   if (t.hurtT > 0 && t.hp < t.maxHp && !t.dead) {
@@ -1360,6 +1410,7 @@ function screenSettings() {
   list.append(sliderRow("Sound FX Volume", save.settings.sfx, v => { save.settings.sfx = v; Audio.applyVolumes(); persist(); }));
   list.append(toggleRow("Screen Shake", save.settings.shake, v => { save.settings.shake = v; persist(); }));
   list.append(toggleRow("Damage Numbers", save.settings.damageNums, v => { save.settings.damageNums = v; persist(); }));
+  list.append(toggleRow("Vibration (mobile)", save.settings.haptics !== false, v => { save.settings.haptics = v; persist(); }));
   list.append(el("button", { class: "btn-danger", style: "max-width:820px;margin:8px auto 0;width:100%", onclick: confirmReset }, "⚠ Reset All Progress"));
   s.append(header("Settings", toMenu), list);
   return s;
@@ -1392,7 +1443,8 @@ function screenHowTo() {
   s.append(header("How to Play", toMenu),
     el("div", { class: "list" },
       howCard("🎯", "Aim & Fire", "Press and DRAG BACK from the slingshot — pull down and away from the trees, like a real slingshot — then release. The dotted arc previews exactly where your ball flies. The further you pull, the more power."),
-      howCard("🌲", "Clear every tree", "Destroy all the trees to win the level. Tougher species (stone, iron, crystal, lava…) take harder hits. Knock a falling tree into its neighbours to trigger chain-reaction combos!"),
+      howCard("🌲", "Clear every tree", "Destroy all the trees to win the level. Knock a falling tree into its neighbours to trigger chain-reaction combos!"),
+      howCard("💥", "Special trees", "Watch for 💣 TNT trees (huge chain explosions!), 🛡 armored trees (need a heavy Stone/Iron ball, a Bomb, or a lucky crit), and ✨ golden trees worth 10× coins — don't let them get away!"),
       howCard("🔥", "Build combos", "Smash trees quickly in a row to raise your combo multiplier — the higher the combo, the more coins you earn."),
       howCard("🛒", "Upgrade your gear", "Spend coins in the Shop to upgrade your Slingshot (more power & damage) and unlock new Balls with special effects: fire, bombs, chain lightning and critical-hit diamond."),
       howCard("💀", "Beat the bosses", "Every 10th level is a boss. Hit its glowing weak point while it's OPEN for triple damage — but any solid hit still chips it down. Keep firing and watch its health bar!"),
