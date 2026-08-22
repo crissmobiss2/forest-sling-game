@@ -44,6 +44,29 @@ const BALLS = [
 ];
 const ballById = id => BALLS.find(b => b.id === id) || BALLS[0];
 
+// Cosmetic ball trails (col(f) — f=1 at the head, 0 at the tail). Never affect gameplay.
+const TRAILS = [
+  { id: "none", name: "Classic Trail", rar: "common", cost: 0, cur: "coins", col: (f, bc) => bc },
+  { id: "fire", name: "Fire Trail", rar: "rare", cost: 900, cur: "coins", col: f => lerpColor("#c0361f", "#fff2a0", f) },
+  { id: "ice", name: "Ice Trail", rar: "rare", cost: 900, cur: "coins", col: f => lerpColor("#3a9fd6", "#ffffff", f) },
+  { id: "neon", name: "Neon Trail", rar: "epic", cost: 1800, cur: "coins", col: f => lerpColor("#ff2ad6", "#2affd6", f) },
+  { id: "rainbow", name: "Rainbow Trail", rar: "legendary", cost: 12, cur: "gems", col: f => `hsl(${(f * 200 + cloudT * 80) % 360},90%,62%)` },
+  { id: "galaxy", name: "Galaxy Trail", rar: "legendary", cost: 16, cur: "gems", col: f => lerpColor("#2a1a5a", "#ff9fe0", f) },
+];
+const trailById = id => TRAILS.find(t => t.id === id) || TRAILS[0];
+
+// Cosmetic slingshot skins.
+const SKINS = [
+  { id: "default", name: "Wood", rar: "common", cost: 0, cur: "coins", wood: "#8a5a2c", wood2: "#6b4420", band: "#c8503c" },
+  { id: "gold", name: "Gold", rar: "epic", cost: 2500, cur: "coins", wood: "#e0b23a", wood2: "#a87a1a", band: "#fff2b0" },
+  { id: "crystal", name: "Crystal", rar: "epic", cost: 2500, cur: "coins", wood: "#6fc6dd", wood2: "#3a8fae", band: "#e0fff7" },
+  { id: "shadow", name: "Shadow", rar: "rare", cost: 1800, cur: "coins", wood: "#2a2a34", wood2: "#14141a", band: "#6a6a8a" },
+  { id: "dragon", name: "Dragon", rar: "legendary", cost: 20, cur: "gems", wood: "#c0361f", wood2: "#6a1a1a", band: "#ffd24d" },
+  { id: "neon", name: "Neon", rar: "legendary", cost: 14, cur: "gems", wood: "#ff2ad6", wood2: "#7a1080", band: "#2affd6" },
+];
+const skinById = id => SKINS.find(s => s.id === id) || SKINS[0];
+const cosmeticById = id => TRAILS.find(t => t.id === id) || SKINS.find(s => s.id === id);
+
 const WORLDS = [
   { name:"Green Forest",  sky:["#6fb7ff","#cfe9ff"], ground:"#4f8f39", groundD:"#3c6f2b", hill:"#3f6f4c", trunk:"#6b4a2b", leaf:"#57a84a", leaf2:"#3f8f3a", boss:"#4a6a30", night:false, root:57, scale:"major" },
   { name:"Autumn Forest", sky:["#e8a24a","#ffd9a0"], ground:"#8a5a2a", groundD:"#6f4420", hill:"#7a5230", trunk:"#5c3f22", leaf:"#e08a2a", leaf2:"#c05a1a", boss:"#7a4420", night:false, root:55, scale:"minor" },
@@ -83,13 +106,15 @@ const SAVE_KEY = "forestsling_save_v1";
 let save;
 function defaultSave() {
   return {
-    coins: 0, highest: 1, power: 1,
+    coins: 0, gems: 0, highest: 1, power: 1,
     ownedBalls: ["wood"], ball: "wood",
-    stars: {}, achs: [],
+    trail: "none", skin: "default", ownedCosmetics: ["none", "default"],
+    stars: {}, bestScore: {}, starMilestone: 0, achs: [],
     stats: { trees: 0, bosses: 0, bestcombo: 0, shots: 0, levels: 0 },
     settings: { music: 0.5, sfx: 0.8, shake: true, damageNums: true, haptics: true },
   };
 }
+function addGems(v) { save.gems = Math.max(0, (save.gems || 0) + v); persist(); refreshHUD(); }
 function loadSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -260,7 +285,8 @@ function generateLevel(lvl) {
   G.level = lvl; G.world = w; G.ended = false; G.reviveUsed = false;
   G.trees = []; G.boss = null; G.chests = []; G.particles = []; G.bolts = [];
   G.rings = []; G.coinFX = []; G.leaves = []; G.decor = [];
-  G.coinsEarned = 0; G.shotsUsed = 0; G.combo = 0; G.comboT = 0; G.bestCombo = 0;
+  G.coinsEarned = 0; G.gemsEarned = 0; G.score = 0; G.coinMult = 1; G.giantShots = 0;
+  G.shotsUsed = 0; G.combo = 0; G.comboT = 0; G.bestCombo = 0;
   const rng = seedRand(lvl * 2654435761);
   const hpScale = 1 + (lvl - 1) * 0.05;
 
@@ -290,8 +316,12 @@ function generateLevel(lvl) {
   G.fieldW = x + 300;
   G.treesTotal = count; G.treesLeft = count;
   G.shots = Math.ceil(count * 0.85) + 2; G.shotsLeft = G.shots;
-  // chest chance
-  if (rng() < 0.18) G.chests.push({ x: rand(760, G.fieldW - 400), y: GROUND_Y, opened: false, s: 1, a: 1 });
+  // chest / power-up crate
+  if (rng() < 0.36) {
+    const kinds = ["coins", "coins", "gems", "shots", "double", "giant"];
+    const kind = kinds[Math.floor(rng() * kinds.length)];
+    G.chests.push({ x: rand(720, G.fieldW - 380), y: GROUND_Y, opened: false, s: 1, a: 1, kind });
+  }
   generateDecor(rng);
 }
 
@@ -343,6 +373,7 @@ function loadBall() {
   if (!G.canAimAllowed()) return;
   G.ball = makeBall(ballById(save.ball));
   G.ball.x = SLING_X; G.ball.y = GROUND_Y - 18;
+  if (G.giantShots > 0) { G.ball.r *= 1.7; G.ball.dmgMult = 1.6; G.giantShots--; }
   G.aim.active = false; G.canAim = true;
   cam.follow = false;
 }
@@ -442,7 +473,7 @@ function hitTestTree(b, t) {
 
 function dealDamage(t, b, spd, at) {
   const sf = clamp(spd / 900, 0.5, 1.7);
-  let dmg = b.data.dmg * damageFactor(save.power) * sf;
+  let dmg = b.data.dmg * damageFactor(save.power) * sf * (b.dmgMult || 1);
   let crit = Math.random() < (b.data.effect === "crit" ? 0.35 : 0.06);
   if (crit) dmg *= 2;
   // Armored trees shrug off light hits — reward heavy/explosive balls & crits.
@@ -507,9 +538,11 @@ function destroyTree(t, chain) {
   statMax("bestcombo", G.combo);
   showCombo();
   const mult = 1 + Math.min(G.combo, 30) * 0.1 + worldIndex(G.level) * 0.05;
-  let reward = Math.round((5 + G.level * 0.6) * mult * (chain ? 1.5 : 1));
+  let reward = Math.round((5 + G.level * 0.6) * mult * (chain ? 1.5 : 1) * (G.coinMult || 1));
+  G.score += Math.round(10 * mult) + (chain ? 6 : 0);
   if (t.kind === "gold") {
-    reward = Math.round(reward * 10);
+    reward = Math.round(reward * 10); G.score += 120;
+    if (Math.random() < 0.5) { addGems(1); G.gemsEarned++; }
     for (let i = 0; i < 22; i++) { const a = rand(0, 6.28), s = rand(60, 260); G.particles.push({ x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60, life: rand(0.5, 1), max: 1, r: rand(2, 5), col: "#ffcf4a", g: 400, glow: true }); }
     ringFX(cx, cy, t.canopyR * 2.4, "#ffcf4a", 6); toast("💰 Golden Tree!  +" + fmt(reward) + " 🪙"); Audio.sfx("gem");
   }
@@ -584,11 +617,14 @@ function stepBoss(boss, dt) {
 // ------------------------------------------------------------------ chest ---
 function openChest(c) {
   c.opened = true;
-  const coins = randi(80, 260); addCoins(coins); coinPop(c.x, c.y - 30, coins);
-  statAdd("trees", 0);
-  for (let i = 0; i < 16; i++) G.particles.push({ x: c.x, y: c.y - 24, vx: rand(-160, 160), vy: rand(-320, -60), life: rand(0.5, 1), max: 1, r: rand(2, 5), col: "#ffcf4a", g: 500 });
-  Audio.sfx("purchase"); shake(5);
-  toast(`Chest!  +${fmt(coins)} 🪙`);
+  const cx = c.x, cy = c.y - 24, kind = c.kind || "coins";
+  for (let i = 0; i < 16; i++) G.particles.push({ x: cx, y: cy, vx: rand(-160, 160), vy: rand(-320, -60), life: rand(0.5, 1), max: 1, r: rand(2, 5), col: "#ffcf4a", g: 500, glow: true });
+  Audio.sfx("purchase"); shake(6); vibrate(14); ringFX(cx, cy, 64, "#ffcf4a", 4);
+  if (kind === "coins") { const coins = randi(120, 320); addCoins(coins); G.coinsEarned += coins; coinPop(cx, cy - 6, coins); toast(`Chest!  +${fmt(coins)} 🪙`); }
+  else if (kind === "gems") { const g = randi(1, 3); addGems(g); G.gemsEarned += g; popup(cx, cy - 30, `+${g} 💎`, "#ff8ab0", 24); toast(`Chest!  +${g} 💎`); Audio.sfx("gem"); }
+  else if (kind === "shots") { G.shots += 2; G.shotsLeft += 2; refreshShots(); bigCallout("+2 SHOTS!"); toast("Power-up: +2 shots!"); }
+  else if (kind === "double") { G.coinMult = 2; bigCallout("2× COINS!"); toast("Power-up: double coins this level!"); }
+  else if (kind === "giant") { G.giantShots += 1; bigCallout("GIANT BALL!"); toast("Power-up: giant ball next shot!"); }
 }
 
 // ------------------------------------------------------------------ FX ------
@@ -735,15 +771,25 @@ function bigCallout(title, sub) {
 }
 function winLevel() {
   if (G.ended) return; G.ended = true; G.state = "over";
-  Audio.stopMusic(); Audio.sfx("win"); flash("#fff", 0.4);
+  Audio.stopMusic(); Audio.sfx("win"); flash("#fff", 0.4); vibrate([20, 40, 20]);
   let stars = 1; if (G.shotsUsed <= Math.ceil(G.treesTotal * 0.6)) stars = 3; else if (G.shotsUsed <= G.treesTotal) stars = 2;
   if (G.boss) stars = Math.max(stars, 2);
+  G.score += G.shotsLeft * 50 + stars * 100;
   const bonus = Math.round(30 + G.level * 6); addCoins(bonus); G.coinsEarned += bonus;
+  if (G.boss) { const g = 2 + worldIndex(G.level); addGems(g); G.gemsEarned += g; }
   save.stars[G.level] = Math.max(save.stars[G.level] || 0, stars);
+  save.bestScore[G.level] = Math.max(save.bestScore[G.level] || 0, G.score);
   save.stats.levels = (save.stats.levels || 0) + 1;
   if (G.level < MAX_LEVEL) { save.highest = Math.max(save.highest, G.level + 1); statMax("highest", save.highest); }
+  checkStarMilestones();
   persist();
   setTimeout(() => showVictory(stars), 700);
+}
+function totalStars() { let s = 0; for (const k in save.stars) s += save.stars[k]; return s; }
+function checkStarMilestones() {
+  const ts = totalStars();
+  const tiers = [{ n: 10, c: 500, g: 0 }, { n: 25, c: 1500, g: 2 }, { n: 50, c: 3000, g: 3 }, { n: 100, c: 6000, g: 5 }, { n: 150, c: 10000, g: 8 }, { n: 200, c: 15000, g: 12 }, { n: 250, c: 22000, g: 18 }, { n: 300, c: 40000, g: 30 }];
+  for (const t of tiers) if (ts >= t.n && (save.starMilestone || 0) < t.n) { save.starMilestone = t.n; addCoins(t.c); if (t.g) addGems(t.g); toast(`⭐ ${t.n} Stars reached!  +${fmt(t.c)} 🪙${t.g ? " +" + t.g + " 💎" : ""}`); persist(); }
 }
 function loseLevel() {
   if (G.ended) return; G.ended = true; G.state = "over";
@@ -1061,6 +1107,13 @@ function drawChest(c) {
   ctx.fillStyle = "#8a5a2c"; ctx.fillRect(-w / 2, -h - 10, w, 12);
   ctx.fillStyle = "#ffcf4a"; ctx.fillRect(-6, -h * 0.6, 12, 12);
   ctx.restore(); ctx.globalAlpha = 1;
+  if (!c.opened) {
+    const icon = { coins: "🪙", gems: "💎", shots: "＋", double: "×2", giant: "●" }[c.kind || "coins"];
+    const iy = GROUND_Y - 62 + Math.sin(cloudT * 3 + c.x * 0.1) * 4;
+    ctx.save(); ctx.globalAlpha = 0.95 * c.a; ctx.fillStyle = "rgba(10,16,14,0.55)"; circle(c.x, iy, 15);
+    ctx.font = "bold 20px system-ui,sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff"; ctx.fillText(icon, c.x, iy + 1);
+    ctx.restore();
+  }
 }
 function drawBoss(boss) {
   const r = boss.r, w = boss.world, alpha = boss.dead ? clamp(boss.hp, 0, 1) : 1;
@@ -1090,8 +1143,9 @@ function drawBall() {
   const r = b.r;
   // glowing trail (additive)
   if (b.trail.length > 1 && !b.held) {
+    const tr = trailById(save.trail);
     ctx.save(); ctx.globalCompositeOperation = "lighter";
-    for (let i = b.trail.length - 1; i >= 1; i--) { const p = b.trail[i], f = 1 - i / b.trail.length; ctx.globalAlpha = f * 0.5; ctx.fillStyle = b.data.color; circle(p.x, p.y, r * f * 0.95); }
+    for (let i = b.trail.length - 1; i >= 1; i--) { const p = b.trail[i], f = 1 - i / b.trail.length; ctx.globalAlpha = f * 0.55; ctx.fillStyle = tr.col(f, b.data.color); circle(p.x, p.y, r * f * 0.95); }
     ctx.restore(); ctx.globalAlpha = 1;
   }
   ctx.save(); ctx.translate(b.x, b.y);
@@ -1115,16 +1169,17 @@ function drawSlingshot() {
   const lx = bx - 33, rx = bx + 33, ty = by - 120, fork = by - 66;
   const showBand = G.ball && (G.aim.active || G.canAim);
   const px = G.ball ? G.ball.x : bx, py = G.ball ? G.ball.y : by - 18;
+  const sk = skinById(save.skin);
   ctx.lineCap = "round";
-  if (showBand) { ctx.strokeStyle = "#7a2f22"; ctx.lineWidth = 7; line(rx, ty, px, py); }
+  if (showBand) { ctx.strokeStyle = shade(sk.band, -0.22); ctx.lineWidth = 7; line(rx, ty, px, py); }
   const limb = (x1, y1, x2, y2) => {
-    ctx.strokeStyle = "#432610"; ctx.lineWidth = 17; line(x1, y1, x2, y2);
-    const g = ctx.createLinearGradient(x1, y1, x2, y2); g.addColorStop(0, "#8a5a2c"); g.addColorStop(1, "#6b4420");
+    ctx.strokeStyle = shade(sk.wood2, -0.28); ctx.lineWidth = 17; line(x1, y1, x2, y2);
+    const g = ctx.createLinearGradient(x1, y1, x2, y2); g.addColorStop(0, sk.wood); g.addColorStop(1, sk.wood2);
     ctx.strokeStyle = g; ctx.lineWidth = 12; line(x1, y1, x2, y2);
-    ctx.strokeStyle = "rgba(255,220,180,0.22)"; ctx.lineWidth = 3; line(x1, y1, x2, y2);
+    ctx.strokeStyle = "rgba(255,255,255,0.22)"; ctx.lineWidth = 3; line(x1, y1, x2, y2);
   };
   limb(bx, by + 4, bx, fork); limb(bx, fork, lx, ty); limb(bx, fork, rx, ty);
-  ctx.fillStyle = "#5a3418"; circle(lx, ty, 7.5); circle(rx, ty, 7.5);
+  ctx.fillStyle = shade(sk.wood2, -0.12); circle(lx, ty, 7.5); circle(rx, ty, 7.5);
   ctx.fillStyle = "rgba(255,220,180,0.25)"; circle(lx - 1.5, ty - 1.5, 2.5); circle(rx - 1.5, ty - 1.5, 2.5);
   if (G.aim.active && G.ball) {
     const ratio = clamp(Math.hypot(px - bx, py - (by - 18)) / 150, 0, 1), gc = lerpColor("#8fe86a", "#ff5a4a", ratio);
@@ -1133,7 +1188,7 @@ function drawSlingshot() {
     ctx.fillStyle = gg; ctx.globalAlpha = 0.5 + ratio * 0.4; circle(px, py, 24 + ratio * 24); ctx.restore(); ctx.globalAlpha = 1;
   }
   if (showBand) {
-    ctx.strokeStyle = "#c8503c"; ctx.lineWidth = 7; line(lx, ty, px, py);
+    ctx.strokeStyle = sk.band; ctx.lineWidth = 7; line(lx, ty, px, py);
     ctx.fillStyle = "#5a3a24"; ctx.beginPath(); ctx.ellipse(px, py, G.ball.r + 5, G.ball.r + 6, 0, 0, 6.28); ctx.fill();
   }
 }
@@ -1207,7 +1262,7 @@ function loop(t) {
 const uiLayer = document.getElementById("ui");
 const fxLayer = document.getElementById("fx");
 const toastLayer = document.getElementById("toasts");
-let hud, comboEl, bossBarEl, shotsEl, ballsEl, hudInfoEl, coinChipEl, coinValEl, hintEl;
+let hud, comboEl, bossBarEl, shotsEl, ballsEl, hudInfoEl, coinChipEl, coinValEl, hintEl, gemValEl;
 
 function showHint() { if (hintEl) hintEl.style.display = (save.stats.shots || 0) < 6 ? "flex" : "none"; }
 function hideHint() { if (hintEl) hintEl.style.display = "none"; }
@@ -1226,8 +1281,10 @@ function buildHUD() {
   shotsEl = el("div", { class: "shots" });
   coinValEl = el("span", {}, fmt(save.coins));
   coinChipEl = el("div", { class: "chip coin hud-coin", style: "pointer-events:auto" }, el("span", { class: "ic" }, "🪙"), coinValEl);
+  gemValEl = el("span", {}, fmt(save.gems || 0));
+  const gemChip = el("div", { class: "chip gem", style: "pointer-events:auto" }, el("span", { class: "ic" }, "💎"), gemValEl);
   const pause = el("button", { class: "iconbtn", onclick: togglePause, style: "pointer-events:auto" }, "⏸");
-  top.append(hudInfoEl, el("div", { class: "spacer" }), shotsEl, el("div", { class: "spacer" }), coinChipEl, pause);
+  top.append(hudInfoEl, el("div", { class: "spacer" }), shotsEl, el("div", { class: "spacer" }), coinChipEl, gemChip, pause);
   ballsEl = el("div", { class: "hud-balls" });
   bossBarEl = el("div", { class: "bossbar hidden" }, el("div", { class: "bn" }, "BOSS"), el("div", { class: "bar" }, el("span")));
   hud.append(top, ballsEl, bossBarEl);
@@ -1242,6 +1299,7 @@ function refreshHUD() {
   if (!hudInfoEl) return;
   hudInfoEl.innerHTML = `<div class="lv">${G.boss ? "💀 Boss" : "Level " + G.level}</div><div class="wx">${G.world.name}</div>`;
   if (coinValEl) coinValEl.textContent = fmt(save.coins);
+  if (gemValEl) gemValEl.textContent = fmt(save.gems || 0);
 }
 function refreshShots() {
   if (!shotsEl) return;
@@ -1271,7 +1329,7 @@ function showScreen(node) {
   if (node) { uiLayer.append(node); hud.classList.add("hidden"); }
 }
 function chip(icon, val, cls) { return el("div", { class: "chip " + cls }, el("span", { class: "ic" }, icon), fmt(val)); }
-function currencyChips() { return el("div", { class: "chips" }, chip("🪙", save.coins, "coin")); }
+function currencyChips() { return el("div", { class: "chips" }, chip("🪙", save.coins, "coin"), chip("💎", save.gems || 0, "gem")); }
 
 function screenMenu() {
   Audio.startMusic(WORLDS[worldIndex(save.highest)]);
@@ -1342,7 +1400,7 @@ function screenShop() {
   const list = el("div", { class: "list" });
   function rebuild() {
     tabs.innerHTML = "";
-    [["balls", "Balls"], ["power", "Slingshot"]].forEach(([id, name]) => tabs.append(el("div", { class: "tab" + (tab === id ? " active" : ""), onclick: () => { tab = id; click(); rebuild(); } }, name)));
+    [["balls", "Balls"], ["power", "Slingshot"], ["cosmetics", "Cosmetics"]].forEach(([id, name]) => tabs.append(el("div", { class: "tab" + (tab === id ? " active" : ""), onclick: () => { tab = id; click(); rebuild(); } }, name)));
     list.innerHTML = "";
     if (tab === "balls") {
       for (const b of BALLS) {
@@ -1353,6 +1411,23 @@ function screenShop() {
         else if (owned) action = el("button", { class: "btn-ghost", onclick: () => { save.ball = b.id; persist(); click(); rebuild(); refreshBalls(); } }, "Equip");
         else action = el("button", { class: save.coins >= b.price ? "btn-gold" : "btn-ghost", onclick: () => buyBall(b, rebuild) }, `${fmt(b.price)} 🪙`);
         list.append(card(b.color, b.name, b.rar, `${b.desc}  ·  DMG ${b.dmg}`, action));
+      }
+    } else if (tab === "cosmetics") {
+      list.append(el("div", { class: "section-title" }, "Ball Trails"));
+      for (const tr of TRAILS) {
+        const owned = save.ownedCosmetics.includes(tr.id), eq = save.trail === tr.id;
+        const action = eq ? el("button", { disabled: true }, "Equipped")
+          : owned ? el("button", { class: "btn-ghost", onclick: () => { equipCosmetic(tr); click(); rebuild(); } }, "Equip")
+          : el("button", { class: canAfford(tr.cost, tr.cur) ? "btn-gold" : "btn-ghost", onclick: () => buyCosmetic(tr, rebuild) }, tr.cost + " " + (tr.cur === "gems" ? "💎" : "🪙"));
+        list.append(cosmeticCard(tr, "trail", action));
+      }
+      list.append(el("div", { class: "section-title" }, "Slingshot Skins"));
+      for (const sk of SKINS) {
+        const owned = save.ownedCosmetics.includes(sk.id), eq = save.skin === sk.id;
+        const action = eq ? el("button", { disabled: true }, "Equipped")
+          : owned ? el("button", { class: "btn-ghost", onclick: () => { equipCosmetic(sk); click(); rebuild(); } }, "Equip")
+          : el("button", { class: canAfford(sk.cost, sk.cur) ? "btn-gold" : "btn-ghost", onclick: () => buyCosmetic(sk, rebuild) }, sk.cost + " " + (sk.cur === "gems" ? "💎" : "🪙"));
+        list.append(cosmeticCard(sk, "skin", action));
       }
     } else {
       const lvl = save.power;
@@ -1376,6 +1451,26 @@ function buyBall(b, cb) {
   if (save.coins < b.price) { toast("Not enough coins"); Audio.sfx("click"); return; }
   save.coins -= b.price; save.ownedBalls.push(b.id); save.ball = b.id; persist();
   Audio.sfx("purchase"); toast(`Unlocked ${b.name}!`); refreshHUD(); refreshBalls(); checkAchievements(); cb();
+}
+function canAfford(cost, cur) { return cur === "gems" ? (save.gems || 0) >= cost : save.coins >= cost; }
+function spendCur(cost, cur) { if (cur === "gems") save.gems -= cost; else save.coins -= cost; persist(); refreshHUD(); }
+function equipCosmetic(item) { if (item.col) save.trail = item.id; else save.skin = item.id; persist(); }
+function buyCosmetic(item, cb) {
+  if (save.ownedCosmetics.includes(item.id)) { equipCosmetic(item); cb && cb(); return; }
+  if (!canAfford(item.cost, item.cur)) { toast("Not enough " + (item.cur === "gems" ? "gems" : "coins")); Audio.sfx("click"); return; }
+  spendCur(item.cost, item.cur); save.ownedCosmetics.push(item.id); equipCosmetic(item); persist();
+  Audio.sfx("purchase"); toast("Unlocked " + item.name + "!"); cb && cb();
+}
+function cosmeticCard(item, type, action) {
+  const sw = el("div", { class: "swatch" });
+  if (type === "trail") {
+    if (item.id === "rainbow") sw.style.background = "linear-gradient(90deg,#ff4d4d,#ffd24d,#5fd06a,#41a6ff,#c264ff)";
+    else if (item.id === "none") sw.style.background = "linear-gradient(90deg,#aaa,#eee,#aaa)";
+    else sw.style.background = `linear-gradient(90deg, ${item.col(0)}, ${item.col(0.5)}, ${item.col(1)})`;
+  } else sw.style.background = `linear-gradient(135deg, ${item.wood}, ${item.band})`;
+  return el("div", { class: "card" }, sw,
+    el("div", { class: "info" }, el("div", { class: "name" }, item.name), el("div", { class: "rarity", style: `color:${RARITY[item.rar]}` }, item.rar), el("div", { class: "desc" }, "Cosmetic only — looks great, no gameplay effect.")),
+    action);
 }
 function card(color, name, rar, desc, action) {
   return el("div", { class: "card" },
@@ -1490,6 +1585,9 @@ function showVictory(stars) {
   m.append(el("h2", {}, isFinal ? "FOREST CONQUERED! 👑" : "Level Cleared!"));
   m.append(el("div", { class: "stars-big" }, "★".repeat(stars).padEnd(3, "☆").split("").map((c, i) => el("span", { style: `color:${i < stars ? "#ffcf4a" : "#444"}` }, c))));
   m.append(el("div", { class: "reward-row" }, el("span", {}, "🪙 Coins earned"), el("span", { class: "v" }, "+" + fmt(G.coinsEarned))));
+  if (G.gemsEarned > 0) m.append(el("div", { class: "reward-row" }, el("span", {}, "💎 Gems earned"), el("span", { class: "v", style: "color:#ff8ab0" }, "+" + fmt(G.gemsEarned))));
+  const best = save.bestScore[G.level] || 0, isBest = G.score >= best;
+  m.append(el("div", { class: "reward-row" }, el("span", {}, "🏆 Score"), el("span", { class: "v" }, fmt(G.score) + (isBest ? "  ✨ BEST!" : "  (best " + fmt(best) + ")"))));
   m.append(el("div", { class: "sub" }, `Shots used: ${G.shotsUsed}  ·  Best combo: x${G.bestCombo}`));
   const row = el("div", { class: "row" });
   if (!isFinal) row.append(el("button", { class: "btn-primary", onclick: () => { closeModal(); startLevel(G.level + 1); } }, "Next ›"));
