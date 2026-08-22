@@ -281,7 +281,8 @@ const G = {
   state: "menu",          // menu | play | over
   level: 1, world: WORLDS[0], fieldW: 2000,
   trees: [], boss: null, chests: [], particles: [], bolts: [],
-  rings: [], coinFX: [], leaves: [], decor: [],
+  rings: [], coinFX: [], leaves: [], decor: [], balloons: [],
+  wind: 0,
   ball: null, aim: { active: false, px: 0, py: 0, wx: 0, wy: 0 },
   shots: 6, shotsLeft: 6, treesLeft: 0, treesTotal: 0,
   coinsEarned: 0, shotsUsed: 0, reviveUsed: false,
@@ -1008,7 +1009,6 @@ function render() {
   drawCoinFX();
   drawVignette();
   drawWindIndicator();
-  requestAnimationFrame(loop);
 }
 function drawBalloons() {
   for (const bl of G.balloons) {
@@ -1371,8 +1371,9 @@ function lerpColor(a, b, t) { const c1 = hexToRgb(a), c2 = hexToRgb(b); return `
 let last = 0;
 function loop(t) {
   const tt = t / 1000; let dt = last ? tt - last : 0.016; last = tt; dt = Math.min(dt, 0.05);
-  update(dt);
-  render();
+  // Never let a single bad frame kill the render loop — always re-arm.
+  try { update(dt); render(); } catch (e) { if (typeof console !== "undefined") console.error("frame error", e); }
+  requestAnimationFrame(loop);
 }
 
 // ------------------------------------------------------------------ UI ------
