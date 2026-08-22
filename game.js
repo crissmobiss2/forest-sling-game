@@ -1459,12 +1459,12 @@ function installBtn() {
 }
 async function promptInstall() {
   if (deferredInstall) {
-    deferredInstall.prompt();
-    try { await deferredInstall.userChoice; } catch (e) {}
-    deferredInstall = null;
+    const dp = deferredInstall;
+    deferredInstall = null;              // a prompt can only be used once — consume it now
+    try { dp.prompt(); await dp.userChoice; } catch (e) {}
     if (G.state === "menu") toMenu();
   } else {
-    installInstructions();
+    installInstructions();               // iOS / in-app browsers / prompt already used
   }
 }
 function installInstructions() {
