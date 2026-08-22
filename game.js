@@ -277,6 +277,8 @@ function resize() {
   bgGrad = {};   // invalidate cached background gradients (size changed)
 }
 window.addEventListener("resize", resize);
+// Rotation: dimensions settle a tick after the event fires on mobile.
+window.addEventListener("orientationchange", () => { resize(); setTimeout(resize, 150); setTimeout(resize, 400); });
 
 const cam = { x: SLING_X + 260, y: GROUND_Y - 170, zoom: 1, tzoom: 1, shx: 0, shy: 0, shMag: 0, shT: 0 };
 function w2s(wx, wy) { return { x: (wx - cam.x) * S * cam.zoom + cssW / 2 + cam.shx, y: (wy - cam.y) * S * cam.zoom + cssH / 2 + cam.shy }; }

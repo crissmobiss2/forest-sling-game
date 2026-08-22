@@ -1,11 +1,11 @@
 /* Forest Sling service worker — offline app-shell cache.
    Bump CACHE (and the ?v= asset queries) together on each release. */
-const CACHE = "forest-sling-v17";
+const CACHE = "forest-sling-v18";
 const ASSETS = [
   "./",
   "./index.html",
-  "./game.js?v=17",
-  "./style.css?v=17",
+  "./game.js?v=18",
+  "./style.css?v=18",
   "./manifest.webmanifest",
   "./icon-192.png",
   "./icon-512.png",
