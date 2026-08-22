@@ -266,12 +266,9 @@ function generateLevel(lvl) {
 
   if (isBossLevel(lvl)) {
     G.fieldW = 1500;
-    G.boss = makeBoss(w, lvl, 170 + worldIndex(lvl) * 130 + lvl * 5);
+    G.boss = makeBoss(w, lvl, 160 + worldIndex(lvl) * 120 + lvl * 4);
     G.treesTotal = 1; G.treesLeft = 1;
-    G.shots = 12 + worldIndex(lvl); G.shotsLeft = G.shots;
-    // a few decorative trees
-    const deco = 2 + randi(0, 2);
-    for (let i = 0; i < deco; i++) addTree(rand(900, 1350), w, 24 * hpScale, rng, false);
+    G.shots = 14 + worldIndex(lvl); G.shotsLeft = G.shots;
     generateDecor(rng);
     return;
   }
@@ -537,7 +534,7 @@ function damageBoss(boss, dmg, at) {
   const hitWeak = boss.weakOpen && dist2(at.x, at.y, boss.x, weakY) < 88 * 88;
   // Bosses take extra from solid impacts; weak point triples it.
   const mult = hitWeak ? 3.0 : (boss.weakOpen ? 1.0 : 0.7);
-  dmg *= 1.9 * mult;
+  dmg *= 2.1 * mult;
   if (hitWeak) explosionFX(at.x, at.y, 40, "#ffe14d");
   boss.hp = Math.max(0, boss.hp - dmg); boss.flash = 0.12; boss.wob = (at.x < boss.x ? 1 : -1) * 14;
   if (save.settings.damageNums) popup(at.x, at.y - 20, Math.round(dmg), hitWeak ? "#ffe14d" : "#fff", hitWeak ? 24 : 18);
@@ -556,9 +553,9 @@ function killBoss(boss) {
 }
 function stepBoss(boss, dt) {
   boss.t += dt;
-  const sp = 1 + boss.phase * 0.3;
-  boss.x = boss.cx + Math.sin(boss.t * 0.42 * sp) * 110;
-  boss.y = GROUND_Y - 220 + Math.sin(boss.t * 0.9 * sp) * 18;
+  const sp = 1 + boss.phase * 0.28;
+  boss.x = boss.cx + Math.sin(boss.t * 0.36 * sp) * 92;
+  boss.y = GROUND_Y - 220 + Math.sin(boss.t * 0.8 * sp) * 16;
   boss.wob *= 0.9;
   boss.weakT -= dt; if (boss.weakT <= 0) { boss.weakOpen = !boss.weakOpen; boss.weakT = boss.weakOpen ? [2.4,2.0,1.6][boss.phase] : [0.8,0.75,0.65][boss.phase]; }
   if (boss.flash > 0) boss.flash -= dt;
@@ -1477,6 +1474,7 @@ init();
 window.__forest = {
   G, WORLDS, BALLS, getSave: () => save, startLevel,
   fire: fireBall, loadBall, update, render, canvas,
+  w2s, s2w, cam, GRAVITY, SLING_X, GROUND_Y,
   step(n, dt) { for (let i = 0; i < n; i++) update(dt || 1 / 120); },
 };
 
