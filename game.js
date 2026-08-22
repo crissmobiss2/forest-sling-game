@@ -90,15 +90,19 @@ const damageFactor = p => 1 + (p - 1) * 0.045;
 
 const ACHS = [
   { id:"trees100", name:"Lumberjack", metric:"trees", target:100, reward:400, icon:"🌲" },
-  { id:"trees1000", name:"Deforester", metric:"trees", target:1000, reward:2000, icon:"🌳" },
+  { id:"trees1000", name:"Deforester", metric:"trees", target:1000, reward:2000, gems:5, icon:"🌳" },
+  { id:"trees5000", name:"Timber Titan", metric:"trees", target:5000, reward:8000, gems:15, icon:"🪓" },
   { id:"lvl25", name:"Adventurer", metric:"highest", target:25, reward:1500, icon:"🏁" },
-  { id:"lvl50", name:"Trailblazer", metric:"highest", target:50, reward:4000, icon:"🏁" },
-  { id:"lvl100", name:"Forest Legend", metric:"highest", target:100, reward:12000, icon:"👑" },
-  { id:"boss5", name:"Giant Slayer", metric:"bosses", target:5, reward:3000, icon:"💀" },
-  { id:"boss10", name:"Boss Master", metric:"bosses", target:10, reward:8000, icon:"💀" },
-  { id:"combo15", name:"Combo King", metric:"bestcombo", target:15, reward:2000, icon:"🔥" },
-  { id:"allballs", name:"Collector", metric:"balls", target:BALLS.length, reward:5000, icon:"⚫" },
-  { id:"power50", name:"Fully Charged", metric:"power", target:50, reward:6000, icon:"🏹" },
+  { id:"lvl50", name:"Trailblazer", metric:"highest", target:50, reward:4000, gems:8, icon:"🏁" },
+  { id:"lvl100", name:"Forest Legend", metric:"highest", target:100, reward:12000, gems:30, icon:"👑" },
+  { id:"boss5", name:"Giant Slayer", metric:"bosses", target:5, reward:3000, gems:6, icon:"💀" },
+  { id:"boss10", name:"Boss Master", metric:"bosses", target:10, reward:8000, gems:20, icon:"💀" },
+  { id:"combo15", name:"Combo King", metric:"bestcombo", target:15, reward:2000, gems:5, icon:"🔥" },
+  { id:"combo30", name:"Chain Reactor", metric:"bestcombo", target:30, reward:6000, gems:15, icon:"⚡" },
+  { id:"allballs", name:"Collector", metric:"balls", target:BALLS.length, reward:5000, gems:12, icon:"⚫" },
+  { id:"power50", name:"Fully Charged", metric:"power", target:50, reward:6000, gems:10, icon:"🏹" },
+  { id:"prestige1", name:"Reborn", metric:"prestige", target:1, reward:3000, gems:25, icon:"🌟" },
+  { id:"prestige3", name:"Ascendant", metric:"prestige", target:3, reward:10000, gems:60, icon:"✨" },
 ];
 
 // ------------------------------------------------------------------ save ----
@@ -107,14 +111,16 @@ let save;
 function defaultSave() {
   return {
     coins: 0, gems: 0, highest: 1, power: 1,
+    prestige: 0, champion: false, lastLogin: "", streak: 0, tutorialSeen: false,
     ownedBalls: ["wood"], ball: "wood",
     trail: "none", skin: "default", ownedCosmetics: ["none", "default"],
     stars: {}, bestScore: {}, starMilestone: 0, achs: [],
     stats: { trees: 0, bosses: 0, bestcombo: 0, shots: 0, levels: 0 },
-    settings: { music: 0.5, sfx: 0.8, shake: true, damageNums: true, haptics: true },
+    settings: { music: 0.5, sfx: 0.8, shake: true, damageNums: true, haptics: true, reduceMotion: false, aimGuide: true, muteAll: false, highContrast: false },
   };
 }
 function addGems(v) { save.gems = Math.max(0, (save.gems || 0) + v); persist(); refreshHUD(); }
+function prestigeMult() { return 1 + (save.prestige || 0) * 0.3; }
 function loadSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -142,9 +148,13 @@ function checkAchievements() {
     else if (a.metric === "bestcombo") cur = save.stats.bestcombo;
     else if (a.metric === "balls") cur = save.ownedBalls.length;
     else if (a.metric === "power") cur = save.power;
+    else if (a.metric === "prestige") cur = save.prestige || 0;
     if (cur >= a.target) {
-      save.achs.push(a.id); save.coins += a.reward; persist();
-      toast(`🏆 ${a.name}  +${fmt(a.reward)} 🪙`); Audio.sfx("achievement"); refreshHUD();
+      save.achs.push(a.id); save.coins += a.reward;
+      if (a.gems) save.gems = (save.gems || 0) + a.gems;
+      persist();
+      toast(`🏆 ${a.name}  +${fmt(a.reward)} 🪙${a.gems ? "  +" + a.gems + " 💎" : ""}`);
+      Audio.sfx("achievement"); refreshHUD();
     }
   }
 }
@@ -166,7 +176,8 @@ const Audio = (function () {
   }
   function applyVolumes() {
     if (!ctx) return;
-    master.gain.value = 0.9;
+    const mute = save.settings.muteAll ? 0 : 1;
+    master.gain.value = 0.9 * mute;
     musicGain.gain.value = save.settings.music;
     sfxGain.gain.value = save.settings.sfx;
   }
@@ -261,7 +272,8 @@ window.addEventListener("resize", resize);
 const cam = { x: SLING_X + 260, y: GROUND_Y - 170, zoom: 1, tzoom: 1, shx: 0, shy: 0, shMag: 0, shT: 0 };
 function w2s(wx, wy) { return { x: (wx - cam.x) * S * cam.zoom + cssW / 2 + cam.shx, y: (wy - cam.y) * S * cam.zoom + cssH / 2 + cam.shy }; }
 function s2w(sx, sy) { return { x: (sx - cssW / 2) / (S * cam.zoom) + cam.x, y: (sy - cssH / 2) / (S * cam.zoom) + cam.y }; }
-function shake(mag) { if (!save.settings.shake) return; cam.shMag = Math.max(cam.shMag, mag); cam.shT = 0.35; }
+function shake(mag) { if (!save.settings.shake) return; if (save.settings.reduceMotion) mag *= 0.35; cam.shMag = Math.max(cam.shMag, mag); cam.shT = 0.35; }
+function triggerSlowmo(dur) { if (save.settings.reduceMotion) return; G.slowmoT = Math.max(G.slowmoT || 0, dur); }
 function zoomPunch(z) { cam.tzoom = z; }
 
 // ------------------------------------------------------------------ state ---
@@ -274,7 +286,7 @@ const G = {
   shots: 6, shotsLeft: 6, treesLeft: 0, treesTotal: 0,
   coinsEarned: 0, shotsUsed: 0, reviveUsed: false,
   combo: 0, comboT: 0, bestCombo: 0,
-  canAim: false, timeScale: 1, hitstopT: 0, ended: false, ctxParticleParent: null,
+  canAim: false, timeScale: 1, hitstopT: 0, slowmoT: 0, ended: false, ctxParticleParent: null,
 };
 
 // ------------------------------------------------------------------ level ---
@@ -288,11 +300,11 @@ function generateLevel(lvl) {
   G.coinsEarned = 0; G.gemsEarned = 0; G.score = 0; G.coinMult = 1; G.giantShots = 0;
   G.shotsUsed = 0; G.combo = 0; G.comboT = 0; G.bestCombo = 0; G.wind = 0; G.balloons = [];
   const rng = seedRand(lvl * 2654435761);
-  const hpScale = 1 + (lvl - 1) * 0.05;
+  const hpScale = 1 + (save.prestige || 0) * 0.28;  // prestige makes everything tougher
 
   if (isBossLevel(lvl)) {
     G.fieldW = 1500;
-    G.boss = makeBoss(w, lvl, 160 + worldIndex(lvl) * 120 + lvl * 4);
+    G.boss = makeBoss(w, lvl, (160 + worldIndex(lvl) * 120 + lvl * 4) * hpScale);
     G.treesTotal = 1; G.treesLeft = 1;
     G.shots = 14 + worldIndex(lvl); G.shotsLeft = G.shots;
     generateDecor(rng);
@@ -302,7 +314,7 @@ function generateLevel(lvl) {
   const count = Math.min(4 + localLevel(lvl) + worldIndex(lvl), 22);
   let x = 500 + rng() * 70;
   for (let i = 0; i < count; i++) {
-    let hp = (11 + lvl * 4 + worldIndex(lvl) * 7) * rand(0.85, 1.2);
+    let hp = (11 + lvl * 4 + worldIndex(lvl) * 7) * rand(0.85, 1.2) * hpScale;
     let kind = "normal";
     const kr = rng();
     if (lvl >= 2 && kr < 0.05) kind = "gold";
@@ -554,7 +566,7 @@ function destroyTree(t, chain) {
   statMax("bestcombo", G.combo);
   showCombo();
   const mult = 1 + Math.min(G.combo, 30) * 0.1 + worldIndex(G.level) * 0.05;
-  let reward = Math.round((5 + G.level * 0.6) * mult * (chain ? 1.5 : 1) * (G.coinMult || 1));
+  let reward = Math.round((5 + G.level * 0.6) * mult * (chain ? 1.5 : 1) * (G.coinMult || 1) * prestigeMult());
   G.score += Math.round(10 * mult) + (chain ? 6 : 0);
   if (t.kind === "gold") {
     reward = Math.round(reward * 10); G.score += 120;
@@ -577,7 +589,7 @@ function destroyTree(t, chain) {
     const radius = t.canopyR * 2 + 50;
     for (const o of G.trees) { if (o === t || o.dead) continue; if (dist2(t.x, t.canopyCy, o.x, o.canopyCy) < radius * radius) applyTreeDamage(o, t.maxHp * 0.6 + 20, false, { x: t.x, y: t.canopyCy }, true); }
   }
-  if (G.treesLeft <= 0 && G.boss == null) winLevel();
+  if (G.treesLeft <= 0 && G.boss == null) { triggerSlowmo(0.55); winLevel(); }
 }
 
 // ------------------------------------------------------------------ boss ----
@@ -614,7 +626,7 @@ function damageBoss(boss, dmg, at) {
   if (boss.hp <= 0) killBoss(boss);
 }
 function killBoss(boss) {
-  boss.dead = true; statAdd("bosses", 1);
+  boss.dead = true; statAdd("bosses", 1); triggerSlowmo(0.8);
   Audio.sfx("bossDie"); shake(22); flash("#fff", 0.5); vibrate([40, 30, 80]);
   for (let i = 0; i < 40; i++) G.particles.push({ x: boss.x + rand(-60, 60), y: boss.y + rand(-60, 60), vx: rand(-300, 300), vy: rand(-400, 100), life: rand(0.6, 1.2), max: 1.2, r: rand(3, 8), col: boss.world.leaf, g: 500 });
   setTimeout(() => { if (G.state === "play") winLevel(); }, 900);
@@ -765,6 +777,19 @@ function startLevel(lvl) {
   Audio.startMusic(G.world);
   loadBall();
   showHint();
+  if (lvl === 1 && !save.tutorialSeen) { save.tutorialSeen = true; persist(); setTimeout(showTutorial, 260); }
+}
+function showTutorial() {
+  const step = (n, icon, txt) => el("div", { class: "tut-step" }, el("div", { class: "tn" }, n), el("div", { class: "ti" }, icon), el("div", { class: "tx" }, txt));
+  modal(el("div", { class: "modal" },
+    el("h2", {}, "How to Sling 🎯"),
+    el("div", { class: "tut-steps" },
+      step("1", "👇", "Press & hold on the ball in the slingshot."),
+      step("2", "↙️", "Drag DOWN & BACK — the dotted line previews the arc."),
+      step("3", "🚀", "Release to fling forward. Farther pull = more power."),
+      step("4", "🌲", "Smash every tree before you run out of shots!")),
+    el("div", { class: "sub", style: "margin-top:6px" }, "Tip: chain trees fast to build a combo for bonus coins."),
+    el("button", { class: "btn-primary btn-block", style: "margin-top:12px", onclick: () => { closeModal(); Audio.sfx("click"); } }, "Let's go! ▶")));
 }
 function turnEnded() {
   if (G.ended) return;
@@ -806,6 +831,10 @@ function winLevel() {
   save.bestScore[G.level] = Math.max(save.bestScore[G.level] || 0, G.score);
   save.stats.levels = (save.stats.levels || 0) + 1;
   if (G.level < MAX_LEVEL) { save.highest = Math.max(save.highest, G.level + 1); statMax("highest", save.highest); }
+  if (G.level >= MAX_LEVEL) {
+    save.highest = MAX_LEVEL; statMax("highest", MAX_LEVEL);
+    if (!save.champion) { save.champion = true; const cg = 25; addGems(cg); G.gemsEarned += cg; toast(`👑 Champion! Forest cleared  +${cg} 💎`); }
+  }
   checkStarMilestones();
   persist();
   setTimeout(() => showVictory(stars), 700);
@@ -872,8 +901,11 @@ window.addEventListener("keydown", e => {
 
 // ------------------------------------------------------------------ update --
 function update(dt) {
+  const realDt = dt;
   // hitstop
-  if (G.hitstopT > 0) { G.hitstopT -= dt; dt *= 0.15; }
+  if (G.hitstopT > 0) { G.hitstopT -= realDt; dt *= 0.15; }
+  // winning-shot slow-mo (cinematic finish; skipped under reduce-motion)
+  if (G.slowmoT > 0) { G.slowmoT -= realDt; dt *= 0.4; }
   // camera
   let tx = cam.x, ty = cam.y;
   if (G.state === "play") {
@@ -1249,18 +1281,23 @@ function drawTrajectory() {
   const ratio = clamp(len / 150, 0, 1);
   const speed = ratio * 1700 * launchPowerFactor(save.power) * G.ball.data.spd;
   let vx = -dx / len * speed, vy = -dy / len * speed, x = rest.x, y = rest.y;
+  const guide = save.settings.aimGuide !== false;
   const dt = 1 / 60, steps = Math.floor(lerp(16, 50, ratio)), col = lerpColor("#9fe86a", "#ff6a5a", ratio);
-  let ex = x, ey = y;
+  const total = steps * 3, maxI = guide ? total : Math.min(total, 21);  // aim-off = short stub only
+  let ex = x, ey = y, stopped = false;
   ctx.save(); ctx.globalCompositeOperation = "lighter";
-  for (let i = 0; i < steps * 3; i++) {
+  for (let i = 0; i < maxI; i++) {
     x += vx * dt; y += vy * dt; vy += GRAVITY * dt; if (G.wind) vx += G.wind * dt; ex = x; ey = y;
     let hitTree = false;
     for (const t of G.trees) { if (!t.dead && Math.hypot(x - t.x, y - t.canopyCy) < t.canopyR) { hitTree = true; break; } }
-    if (y > GROUND_Y || hitTree) break;
-    if (i % 3 === 0) { const f = i / (steps * 3); ctx.globalAlpha = clamp(1 - f, 0.12, 0.85); ctx.fillStyle = col; circle(x, y, lerp(5.5, 1.8, f)); }
+    if (y > GROUND_Y || hitTree) { stopped = true; break; }
+    if (i % 3 === 0) { const f = i / total; ctx.globalAlpha = clamp(1 - f, 0.12, 0.85); ctx.fillStyle = col; circle(x, y, lerp(5.5, 1.8, f)); }
   }
-  const pulse = 1 + 0.15 * Math.sin(cloudT * 8);
-  ctx.globalAlpha = 0.9; ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(ex, Math.min(ey, GROUND_Y - 2), 9 * pulse, 0, 6.28); ctx.stroke();
+  // landing ring only when the full arc is shown and actually reaches an impact
+  if (guide && stopped) {
+    const pulse = 1 + 0.15 * Math.sin(cloudT * 8);
+    ctx.globalAlpha = 0.9; ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(ex, Math.min(ey, GROUND_Y - 2), 9 * pulse, 0, 6.28); ctx.stroke();
+  }
   ctx.restore(); ctx.globalAlpha = 1;
 }
 function drawParticles() {
@@ -1383,13 +1420,16 @@ function currencyChips() { return el("div", { class: "chips" }, chip("🪙", sav
 function screenMenu() {
   Audio.startMusic(WORLDS[worldIndex(save.highest)]);
   const s = el("div", { class: "screen", id: "screen-menu" });
+  const pr = save.prestige || 0;
   s.append(
     el("div", { class: "logo" }, "FOREST SLING"),
     el("div", { class: "tagline" }, "Sling · Smash · Upgrade · Conquer"),
     el("div", { class: "progress-pill" }, `Level ${save.highest}/100  ·  Slingshot Lv ${save.power}  ·  🪙 ${fmt(save.coins)}`),
+    pr > 0 ? el("div", { class: "prestige-pill" }, `🌟 Prestige ${pr}  ·  +${Math.round((prestigeMult() - 1) * 100)}% coins`) : null,
     el("div", { class: "menu-buttons" },
       el("button", { class: "btn-primary btn-lg", onclick: () => { click(); showScreen(screenLevels()); } }, "▶  PLAY"),
       el("button", { class: "btn-gold", onclick: () => { click(); showScreen(screenHowTo()); } }, "❓  How to Play"),
+      canPrestige() ? el("button", { class: "btn-gold", onclick: () => { click(); confirmPrestige(() => toMenu()); } }, "🌟  Prestige — Ascend") : null,
       el("div", { class: "menu-grid" },
         el("button", { onclick: () => { click(); showScreen(screenShop()); } }, "🛒 Shop"),
         el("button", { onclick: () => { click(); showScreen(screenAchievements()); } }, "🏆 Achievements"),
@@ -1399,6 +1439,7 @@ function screenMenu() {
     ),
     el("div", { class: "footer-note" }, "No ads · No pay-to-win · Just fun progression"),
   );
+  checkDaily();
   return s;
 }
 
@@ -1534,14 +1575,14 @@ function screenAchievements() {
   const unlocked = ACHS.filter(a => save.achs.includes(a.id)).length;
   list.append(el("div", { class: "section-title" }, `Unlocked ${unlocked}/${ACHS.length}`));
   for (const a of ACHS) {
-    let cur = a.metric === "trees" ? save.stats.trees : a.metric === "highest" ? save.highest : a.metric === "bosses" ? save.stats.bosses : a.metric === "bestcombo" ? save.stats.bestcombo : a.metric === "balls" ? save.ownedBalls.length : save.power;
+    let cur = a.metric === "trees" ? save.stats.trees : a.metric === "highest" ? save.highest : a.metric === "bosses" ? save.stats.bosses : a.metric === "bestcombo" ? save.stats.bestcombo : a.metric === "balls" ? save.ownedBalls.length : a.metric === "prestige" ? (save.prestige || 0) : save.power;
     const done = save.achs.includes(a.id);
     list.append(el("div", { class: "card", style: done ? "border-bottom-color:var(--accent)" : "" },
       el("div", { class: "swatch", style: `background:${done ? "#2a3a2a" : "#222"};display:flex;align-items:center;justify-content:center;font-size:26px` }, a.icon),
       el("div", { class: "info" }, el("div", { class: "name" }, a.name + (done ? " ✓" : "")),
         el("div", { class: "desc" }, `${fmt(Math.min(cur, a.target))} / ${fmt(a.target)}`),
         el("div", { class: "bar", style: "margin-top:6px" }, el("span", { style: `width:${clamp(cur / a.target, 0, 1) * 100}%;background:${done ? "var(--accent)" : "var(--blue)"}` }))),
-      el("div", { class: "v", style: "color:var(--accent);font-weight:700;white-space:nowrap" }, `+${fmt(a.reward)} 🪙`)));
+      el("div", { class: "v", style: "color:var(--accent);font-weight:700;white-space:nowrap;text-align:right" }, `+${fmt(a.reward)} 🪙`, a.gems ? el("div", { style: "color:#ff8ab0;font-size:13px" }, `+${a.gems} 💎`) : null)));
   }
   s.append(header("Achievements", toMenu), list);
   return s;
@@ -1550,12 +1591,19 @@ function screenAchievements() {
 function screenSettings() {
   const s = el("div", { class: "screen" });
   const list = el("div", { class: "list" });
+  list.append(el("div", { class: "section-title" }, "Audio"));
+  list.append(toggleRow("Mute All", save.settings.muteAll === true, v => { save.settings.muteAll = v; Audio.applyVolumes(); persist(); }));
   list.append(sliderRow("Music Volume", save.settings.music, v => { save.settings.music = v; Audio.applyVolumes(); persist(); }));
   list.append(sliderRow("Sound FX Volume", save.settings.sfx, v => { save.settings.sfx = v; Audio.applyVolumes(); persist(); }));
+  list.append(el("div", { class: "section-title" }, "Accessibility"));
+  list.append(toggleRow("Aim Guide (trajectory preview)", save.settings.aimGuide !== false, v => { save.settings.aimGuide = v; persist(); }));
+  list.append(toggleRow("Reduce Motion", save.settings.reduceMotion === true, v => { save.settings.reduceMotion = v; persist(); }));
+  list.append(toggleRow("High Contrast UI", save.settings.highContrast === true, v => { save.settings.highContrast = v; applyAccessibility(); persist(); }));
+  list.append(el("div", { class: "section-title" }, "Game Feel"));
   list.append(toggleRow("Screen Shake", save.settings.shake, v => { save.settings.shake = v; persist(); }));
   list.append(toggleRow("Damage Numbers", save.settings.damageNums, v => { save.settings.damageNums = v; persist(); }));
   list.append(toggleRow("Vibration (mobile)", save.settings.haptics !== false, v => { save.settings.haptics = v; persist(); }));
-  list.append(el("button", { class: "btn-danger", style: "max-width:820px;margin:8px auto 0;width:100%", onclick: confirmReset }, "⚠ Reset All Progress"));
+  list.append(el("button", { class: "btn-danger", style: "max-width:820px;margin:14px auto 0;width:100%", onclick: confirmReset }, "⚠ Reset All Progress"));
   s.append(header("Settings", toMenu), list);
   return s;
 }
@@ -1628,6 +1676,64 @@ function togglePause() {
 }
 function quitToMenu() { Audio.stopMusic(); G.state = "menu"; G.ball = null; hud.classList.add("hidden"); toMenu(); }
 
+function canPrestige() { return (save.highest >= MAX_LEVEL) || save.champion; }
+function doPrestige() {
+  save.prestige = (save.prestige || 0) + 1;
+  save.highest = 1;                 // replay the forest — tougher, +30% coins per tier
+  save.champion = false;            // re-earn the crown each ascension
+  persist(); checkAchievements(); refreshHUD();
+  Audio.sfx("achievement"); flash("#ffd86b", 0.5); vibrate([20, 40, 20, 40, 40]);
+  toast(`🌟 Prestige ${save.prestige}!  +${Math.round((prestigeMult() - 1) * 100)}% coins forever`);
+}
+function confirmPrestige(after) {
+  const nextMult = 1 + ((save.prestige || 0) + 1) * 0.3;
+  modal(el("div", { class: "modal" },
+    el("h2", {}, "🌟 Prestige?"),
+    el("div", { class: "sub" }, `Restart from Level 1 with tougher forests — but earn a permanent coin bonus. You keep all coins, gems, balls, cosmetics, upgrades, stars & achievements.`),
+    el("div", { class: "reward-row", style: "margin-top:8px" }, el("span", {}, "Coin bonus"), el("span", { class: "v", style: "color:var(--gold)" }, `+${Math.round((nextMult - 1) * 100)}% (was +${Math.round((prestigeMult() - 1) * 100)}%)`)),
+    el("div", { class: "reward-row" }, el("span", {}, "Prestige level"), el("span", { class: "v", style: "color:#ff8ab0" }, `${save.prestige || 0} › ${(save.prestige || 0) + 1} 🌟`)),
+    el("div", { class: "row", style: "margin-top:12px" },
+      el("button", { class: "btn-gold", onclick: () => { closeModal(); doPrestige(); if (after) after(); } }, "🌟 Ascend"),
+      el("button", { class: "btn-ghost", onclick: () => { closeModal(); } }, "Cancel"))));
+}
+
+// ---- daily login streak ----
+let dailyChecked = false;
+function dayStamp(d) { return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate(); }
+function checkDaily() {
+  if (dailyChecked) return; dailyChecked = true;
+  const now = new Date();
+  const today = dayStamp(now);
+  if (save.lastLogin === today) return;
+  const y = new Date(now.getTime()); y.setDate(y.getDate() - 1);
+  const cont = save.lastLogin === dayStamp(y);
+  save.streak = cont ? (save.streak || 0) + 1 : 1;
+  save.lastLogin = today;
+  const day = save.streak;
+  const coins = 200 + Math.min(day, 7) * 150 + save.highest * 8;
+  const gems = (day % 7 === 0) ? 12 : (day % 3 === 0 ? 3 : 0);
+  addCoins(coins); if (gems) addGems(gems);
+  persist();
+  setTimeout(() => showDailyReward(day, coins, gems), 450);
+}
+function showDailyReward(day, coins, gems) {
+  const wk = ((day - 1) % 7) + 1;
+  const cal = el("div", { class: "daily-cal" });
+  for (let i = 1; i <= 7; i++) {
+    cal.append(el("div", { class: "daily-day" + (i < wk ? " past" : i === wk ? " today" : "") },
+      el("div", { class: "dn" }, "D" + i),
+      el("div", { class: "di" }, i % 7 === 0 ? "💎" : "🪙")));
+  }
+  modal(el("div", { class: "modal" },
+    el("h2", {}, "🎁 Daily Reward"),
+    el("div", { class: "sub" }, `Day ${day} streak — welcome back!`),
+    cal,
+    el("div", { class: "reward-row", style: "margin-top:10px" }, el("span", {}, "🪙 Coins"), el("span", { class: "v" }, "+" + fmt(coins))),
+    gems ? el("div", { class: "reward-row" }, el("span", {}, "💎 Gems"), el("span", { class: "v", style: "color:#ff8ab0" }, "+" + gems)) : null,
+    el("button", { class: "btn-primary btn-block", style: "margin-top:12px", onclick: () => { closeModal(); Audio.sfx("coin"); } }, "Collect")));
+  Audio.sfx("achievement");
+}
+
 function showVictory(stars) {
   const isFinal = G.level >= MAX_LEVEL;
   const m = el("div", { class: "modal" });
@@ -1644,7 +1750,10 @@ function showVictory(stars) {
   row.append(el("button", { class: "btn-ghost", onclick: () => { closeModal(); quitToMenu(); } }, "⏏ Menu"));
   m.append(row);
   if (!isFinal) m.append(el("button", { class: "btn-gold btn-block", style: "margin-top:10px", onclick: () => { closeModal(); quitToMenu(); showScreen(screenShop()); } }, "🛒 Visit Shop"));
-  else m.append(el("div", { class: "sub", style: "margin-top:10px;color:var(--green)" }, "You beat all 100 levels! Keep replaying for coins & stars."));
+  else {
+    m.append(el("div", { class: "sub", style: "margin-top:10px;color:var(--green)" }, "You beat all 100 levels! Ascend to loop the forest — tougher trees, permanent coin bonus."));
+    m.append(el("button", { class: "btn-gold btn-block", style: "margin-top:10px", onclick: () => { closeModal(); confirmPrestige(() => quitToMenu()); } }, "🌟 Prestige — Ascend"));
+  }
   modal(m);
 }
 function showDefeat() {
@@ -1659,8 +1768,12 @@ function showDefeat() {
 function click() { Audio.init(); Audio.sfx("click"); }
 
 // ------------------------------------------------------------------ init ----
+function applyAccessibility() {
+  document.body.classList.toggle("high-contrast", save.settings.highContrast === true);
+}
 function init() {
   loadSave();
+  applyAccessibility();
   resize();
   buildHUD();
   toMenu();
