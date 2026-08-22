@@ -286,7 +286,7 @@ function generateLevel(lvl) {
   G.trees = []; G.boss = null; G.chests = []; G.particles = []; G.bolts = [];
   G.rings = []; G.coinFX = []; G.leaves = []; G.decor = [];
   G.coinsEarned = 0; G.gemsEarned = 0; G.score = 0; G.coinMult = 1; G.giantShots = 0;
-  G.shotsUsed = 0; G.combo = 0; G.comboT = 0; G.bestCombo = 0;
+  G.shotsUsed = 0; G.combo = 0; G.comboT = 0; G.bestCombo = 0; G.wind = 0; G.balloons = [];
   const rng = seedRand(lvl * 2654435761);
   const hpScale = 1 + (lvl - 1) * 0.05;
 
@@ -322,6 +322,10 @@ function generateLevel(lvl) {
     const kind = kinds[Math.floor(rng() * kinds.length)];
     G.chests.push({ x: rand(720, G.fieldW - 380), y: GROUND_Y, opened: false, s: 1, a: 1, kind });
   }
+  // wind bends the trajectory on some levels (shown in the aim preview & HUD)
+  if (lvl >= 8 && rng() < 0.32) G.wind = (rng() < 0.5 ? -1 : 1) * rand(150, 360);
+  // floating balloon bonus targets — pop them for coins before they drift away
+  if (lvl >= 5) { const nb = rng() < 0.5 ? (rng() < 0.4 ? 2 : 1) : 0; const bcols = ["#ff5a7a", "#5bb8ff", "#67d982", "#ffcf4a", "#c07bff"]; for (let i = 0; i < nb; i++) G.balloons.push({ x: rand(650, G.fieldW - 300), y: GROUND_Y - rand(60, 200), r: 20, vy: -rand(14, 28), col: bcols[Math.floor(rng() * 5)], popped: false, a: 1, phase: rng() * 6.28 }); }
   generateDecor(rng);
 }
 
@@ -357,8 +361,15 @@ function makeBoss(w, lvl, hp) {
   return {
     x: 900, y: GROUND_Y - 220, r: 92, hp, maxHp: hp, phase: 0, t: 0, dead: false,
     weakOpen: true, weakT: 1.6, flash: 0, invuln: 0, cx: 900, world: w,
-    eye: "#ff5a4a", wob: 0,
+    eye: "#ff5a4a", wob: 0, attackT: 4.5,
   };
+}
+function bossSlam(boss) {
+  shake(16); flash("rgba(255,80,60,0.12)", 0.3); vibrate([22, 24]);
+  Audio.sfx("stone");
+  for (let i = 0; i < 10; i++) { const rx = boss.x + rand(-260, 260); G.particles.push({ x: rx, y: boss.y - 520, vx: rand(-20, 20), vy: rand(200, 380), life: 2, max: 2, r: rand(4, 8), col: "#6a5a4a", g: 400, shape: "square", rot: rand(0, 6.28), vrot: rand(-4, 4) }); }
+  ringFX(boss.x, GROUND_Y - 4, 120, "#ffb060", 6);
+  toast("💥 The boss slams the ground!");
 }
 
 // ------------------------------------------------------------------ ball ----
@@ -403,6 +414,7 @@ function stepBall(dt) {
   if (!b || b.held || b.dead) return;
   b.air += dt;
   b.vy += GRAVITY * dt;
+  if (G.wind) b.vx += G.wind * dt;
   b.x += b.vx * dt; b.y += b.vy * dt;
 
   // decay recent-hit timers
@@ -429,6 +441,10 @@ function stepBall(dt) {
   // chests
   for (const c of G.chests) if (!c.opened) {
     if (dist2(b.x, b.y, c.x, c.y - 24) < (b.r + 34) * (b.r + 34)) openChest(c);
+  }
+  // balloons
+  for (const bl of G.balloons) if (!bl.popped) {
+    if (dist2(b.x, b.y, bl.x, bl.y) < (b.r + bl.r) * (b.r + bl.r)) popBalloon(bl);
   }
 
   // trail
@@ -612,6 +628,8 @@ function stepBoss(boss, dt) {
   boss.weakT -= dt; if (boss.weakT <= 0) { boss.weakOpen = !boss.weakOpen; boss.weakT = boss.weakOpen ? [2.4,2.0,1.6][boss.phase] : [0.8,0.75,0.65][boss.phase]; }
   if (boss.flash > 0) boss.flash -= dt;
   if (boss.invuln > 0) boss.invuln -= dt;
+  boss.attackT -= dt;
+  if (boss.attackT <= 0) { bossSlam(boss); boss.attackT = [5.5, 4.5, 3.5][boss.phase]; }
 }
 
 // ------------------------------------------------------------------ chest ---
@@ -625,6 +643,13 @@ function openChest(c) {
   else if (kind === "shots") { G.shots += 2; G.shotsLeft += 2; refreshShots(); bigCallout("+2 SHOTS!"); toast("Power-up: +2 shots!"); }
   else if (kind === "double") { G.coinMult = 2; bigCallout("2× COINS!"); toast("Power-up: double coins this level!"); }
   else if (kind === "giant") { G.giantShots += 1; bigCallout("GIANT BALL!"); toast("Power-up: giant ball next shot!"); }
+}
+function popBalloon(bl) {
+  bl.popped = true; bl.a = 1;
+  const coins = randi(30, 70) + G.level * 2; addCoins(coins); G.coinsEarned += coins; G.score += 40;
+  coinPop(bl.x, bl.y, coins);
+  for (let i = 0; i < 14; i++) { const a = rand(0, 6.28); G.particles.push({ x: bl.x, y: bl.y, vx: Math.cos(a) * rand(80, 220), vy: Math.sin(a) * rand(80, 220), life: 0.5, max: 0.5, r: rand(2, 4), col: bl.col, g: 300, glow: true }); }
+  ringFX(bl.x, bl.y, 52, bl.col, 4); Audio.sfx("coin"); vibrate(9);
 }
 
 // ------------------------------------------------------------------ FX ------
@@ -872,6 +897,7 @@ function update(dt) {
     G.trees = G.trees.filter(t => !(t.dead && t.a <= 0));
     if (G.boss && !G.boss.dead) stepBoss(G.boss, dt);
     for (const c of G.chests) if (c.opened && c.a > 0) { c.a -= dt * 2; c.s += dt; }
+    for (let i = G.balloons.length - 1; i >= 0; i--) { const bl = G.balloons[i]; if (bl.popped) { bl.a -= dt * 3; if (bl.a <= 0) G.balloons.splice(i, 1); } else { bl.y += bl.vy * dt; if (bl.y < -160) G.balloons.splice(i, 1); } }
     // combo timer
     if (G.combo > 0) { G.comboT -= dt; if (G.comboT <= 0) { G.combo = 0; comboEl.style.opacity = "0"; } }
     if (comboT > 0) { comboT -= dt; if (comboT <= 0) comboEl.style.opacity = "0"; }
@@ -905,6 +931,7 @@ function render() {
   for (const t of G.trees) drawTreeShadow(t);
   for (const t of G.trees) drawTree(t);
   if (G.boss && (!G.boss.dead || G.boss.hp > 0)) drawBoss(G.boss);
+  drawBalloons();
   drawParticles();
   drawRings();
   drawBolts();
@@ -917,7 +944,29 @@ function render() {
 
   drawCoinFX();
   drawVignette();
+  drawWindIndicator();
   requestAnimationFrame(loop);
+}
+function drawBalloons() {
+  for (const bl of G.balloons) {
+    ctx.save(); ctx.globalAlpha = bl.a; ctx.translate(bl.x + Math.sin(bl.phase + cloudT) * 6, bl.y);
+    ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(0, bl.r); ctx.quadraticCurveTo(5, bl.r + 14, 0, bl.r + 26); ctx.stroke();
+    const g = ctx.createRadialGradient(-bl.r * 0.3, -bl.r * 0.4, bl.r * 0.1, 0, 0, bl.r * 1.1); g.addColorStop(0, shade(bl.col, 0.32)); g.addColorStop(0.6, bl.col); g.addColorStop(1, shade(bl.col, -0.2));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, bl.r * 0.9, bl.r * 1.05, 0, 0, 6.28); ctx.fill();
+    ctx.fillStyle = shade(bl.col, -0.15); ctx.beginPath(); ctx.moveTo(-3, bl.r); ctx.lineTo(3, bl.r); ctx.lineTo(0, bl.r + 5); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.beginPath(); ctx.ellipse(-bl.r * 0.3, -bl.r * 0.35, bl.r * 0.2, bl.r * 0.3, -0.4, 0, 6.28); ctx.fill();
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+}
+function drawWindIndicator() {
+  if (!G.wind || G.state !== "play") return;
+  const cx = cssW / 2, y = Math.max(78, cssH * 0.13), dir = Math.sign(G.wind), strength = clamp(Math.abs(G.wind) / 360, 0.3, 1);
+  ctx.save(); ctx.globalAlpha = 0.9; ctx.textAlign = "center"; ctx.font = "bold 12px system-ui,sans-serif"; ctx.fillStyle = "#cfe3ff";
+  ctx.fillText("💨 WIND", cx, y - 13);
+  ctx.strokeStyle = "#8fd0ff"; ctx.fillStyle = "#8fd0ff"; ctx.lineWidth = 3; ctx.lineCap = "round";
+  const len = 28 + strength * 42; ctx.beginPath(); ctx.moveTo(cx - dir * len / 2, y); ctx.lineTo(cx + dir * len / 2, y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx + dir * len / 2, y); ctx.lineTo(cx + dir * (len / 2 - 11), y - 7); ctx.lineTo(cx + dir * (len / 2 - 11), y + 7); ctx.closePath(); ctx.fill();
+  ctx.restore(); ctx.globalAlpha = 1;
 }
 
 function drawSky(w) {
@@ -1204,7 +1253,7 @@ function drawTrajectory() {
   let ex = x, ey = y;
   ctx.save(); ctx.globalCompositeOperation = "lighter";
   for (let i = 0; i < steps * 3; i++) {
-    x += vx * dt; y += vy * dt; vy += GRAVITY * dt; ex = x; ey = y;
+    x += vx * dt; y += vy * dt; vy += GRAVITY * dt; if (G.wind) vx += G.wind * dt; ex = x; ey = y;
     let hitTree = false;
     for (const t of G.trees) { if (!t.dead && Math.hypot(x - t.x, y - t.canopyCy) < t.canopyR) { hitTree = true; break; } }
     if (y > GROUND_Y || hitTree) break;
