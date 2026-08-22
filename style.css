@@ -35,6 +35,10 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block;}
 /* Screens ---------------------------------------------------- */
 .screen{position:absolute;inset:0;display:flex;flex-direction:column;
   padding:clamp(16px,3vw,40px);gap:16px;overflow:auto;pointer-events:auto;
+  padding-top:max(clamp(16px,3vw,40px),env(safe-area-inset-top));
+  padding-left:max(clamp(16px,3vw,40px),env(safe-area-inset-left));
+  padding-right:max(clamp(16px,3vw,40px),env(safe-area-inset-right));
+  padding-bottom:max(clamp(16px,3vw,40px),env(safe-area-inset-bottom));
   animation:fade .3s ease;}
 .screen.hidden{display:none;}
 @keyframes fade{from{opacity:0}to{opacity:1}}
@@ -130,7 +134,7 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none;}
 /* HUD ------------------------------------------------------- */
 #hud{position:absolute;inset:0;pointer-events:none;}
 .hud-top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:12px;
-  padding:12px 14px;}
+  padding:calc(12px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 12px calc(14px + env(safe-area-inset-left));}
 .hud-top>*{pointer-events:auto;}
 .hud-info{background:rgba(10,16,14,.6);padding:8px 14px;border-radius:12px;backdrop-filter:blur(6px);}
 .hud-info .lv{font-weight:700;font-size:16px;}
@@ -138,7 +142,7 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none;}
 .shots{display:flex;gap:6px;align-items:center;background:rgba(10,16,14,.6);padding:8px 14px;border-radius:12px;backdrop-filter:blur(6px);}
 .shot-dot{width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,.18);transition:.2s;}
 .shot-dot.on{background:var(--accent);box-shadow:0 0 8px var(--accent);}
-.hud-balls{position:absolute;left:12px;bottom:12px;display:flex;gap:8px;pointer-events:auto;}
+.hud-balls{position:absolute;left:calc(12px + env(safe-area-inset-left));bottom:calc(12px + env(safe-area-inset-bottom));display:flex;gap:8px;pointer-events:auto;}
 .hud-ball{width:46px;height:46px;border-radius:12px;background:rgba(10,16,14,.6);display:flex;
   align-items:center;justify-content:center;border:2px solid transparent;}
 .hud-ball.sel{border-color:var(--accent);}
@@ -205,3 +209,34 @@ input[type=range]{width:180px;accent-color:var(--accent);}
 .credits-list{color:var(--dim);line-height:1.8;text-align:left;max-width:600px;margin:0 auto;}
 .credits-list b{color:var(--text);}
 .footer-note{color:var(--dim);font-size:13px;text-align:center;margin-top:8px;}
+
+/* ===== Mobile / PWA ===== */
+/* Rotate-to-landscape nudge: slim, non-blocking, portrait touch devices only. */
+#rotate-hint{display:none;}
+@media (orientation:portrait) and (pointer:coarse){
+  #rotate-hint{display:flex;position:fixed;left:0;right:0;
+    top:calc(env(safe-area-inset-top) + 6px);justify-content:center;z-index:60;pointer-events:none;
+    animation:fade .4s ease;}
+  .rh-card{background:rgba(14,20,20,.86);border:1px solid rgba(255,207,74,.35);color:var(--text);
+    font-size:13px;font-weight:600;padding:8px 14px;border-radius:999px;backdrop-filter:blur(8px);
+    box-shadow:0 6px 20px rgba(0,0,0,.4);display:flex;align-items:center;gap:8px;max-width:92vw;}
+  .rh-card b{color:var(--accent);}
+  .rh-ic{font-size:15px;animation:rhspin 2.4s ease-in-out infinite;}
+}
+@keyframes rhspin{0%,60%{transform:rotate(0)}80%{transform:rotate(-90deg)}100%{transform:rotate(-90deg)}}
+
+/* Tap-friendly controls & tighter layout on small screens. */
+@media (max-width:560px){
+  .btn-primary,.btn-gold,.btn-ghost,.menu-grid button,.tab,.worldtab{min-height:46px;}
+  .logo{font-size:clamp(30px,10vw,52px);}
+  .levels{grid-template-columns:repeat(auto-fill,minmax(64px,1fr))!important;}
+  .modal{width:min(94vw,440px);}
+  .hud-info,.shots{padding:6px 10px;}
+  .hud-info .lv{font-size:14px;}
+}
+/* Landscape phones are short: keep menus scrollable and compact. */
+@media (orientation:landscape) and (max-height:480px){
+  .logo{font-size:clamp(26px,7vh,44px);margin-top:2px;}
+  .menu-buttons{margin-top:10px;gap:9px;}
+  .tagline{margin:2px 0;}
+}

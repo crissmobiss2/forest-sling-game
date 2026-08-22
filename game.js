@@ -371,8 +371,8 @@ function addTree(x, w, hp, rng, counts, kind) {
 
 function makeBoss(w, lvl, hp) {
   return {
-    x: 900, y: GROUND_Y - 220, r: 92, hp, maxHp: hp, phase: 0, t: 0, dead: false,
-    weakOpen: true, weakT: 1.6, flash: 0, invuln: 0, cx: 900, world: w,
+    x: 640, y: GROUND_Y - 220, r: 92, hp, maxHp: hp, phase: 0, t: 0, dead: false,
+    weakOpen: true, weakT: 1.6, flash: 0, invuln: 0, cx: 640, world: w,
     eye: "#ff5a4a", wob: 0, attackT: 4.5,
   };
 }
@@ -770,7 +770,18 @@ function startLevel(lvl) {
   Audio.init();
   generateLevel(lvl);
   G.state = "play"; G.ended = false;
-  cam.x = SLING_X + 260; cam.y = GROUND_Y - 170; cam.zoom = 1; cam.tzoom = 1; cam.follow = false;
+  cam.follow = false;
+  // initialise the camera at the sling-anchored framing so the slingshot is on
+  // screen from the first frame (esp. on boss levels / narrow phones).
+  {
+    const bhw = (cssW / 2) / S;
+    const right = G.boss ? (G.boss.cx + 190) : (SLING_X + 760);
+    const baseZoom = clamp((bhw * 2) / (right - (SLING_X - 130)), 0.42, 1);
+    cam.zoom = baseZoom; cam.tzoom = baseZoom;
+    const halfW = (cssW / 2) / (S * cam.zoom);
+    cam.x = clamp(SLING_X + halfW - 160, halfW - 120, Math.max(halfW - 120, G.fieldW - halfW + 120));
+    cam.y = G.boss ? GROUND_Y - 205 : GROUND_Y - 170;
+  }
   showScreen(null); hud.classList.remove("hidden");
   refreshHUD(); refreshShots(); refreshBalls(); refreshBossBar();
   bossBarEl.classList.toggle("hidden", !G.boss);
@@ -908,17 +919,37 @@ function update(dt) {
   if (G.slowmoT > 0) { G.slowmoT -= realDt; dt *= 0.4; }
   // camera
   let tx = cam.x, ty = cam.y;
+  // steady zoom target: normally 1; while AIMING on a boss level, zoom out just
+  // enough that both the slingshot and the boss fit (critical on narrow phones).
+  let baseZoom = 1;
+  const aiming = !(cam.follow && G.ball && !G.ball.held);
+  if (G.state === "play" && aiming) {
+    // Zoom out just enough to frame the slingshot AND the targets together. On a
+    // wide screen the fit-zoom exceeds 1 (clamped to 1 → no change); on a narrow
+    // phone it drops below 1 so the sling and the nearest trees/boss are visible.
+    const baseHalfW = (cssW / 2) / S;                 // half visible world width at zoom 1
+    const left = SLING_X - 130;
+    const right = G.boss ? (G.boss.cx + 190) : (SLING_X + 760);
+    baseZoom = clamp((baseHalfW * 2) / (right - left), 0.42, 1);
+  }
+  // zoomPunch() nudges cam.tzoom for impact pop; it decays back toward baseZoom.
+  cam.tzoom = lerp(cam.tzoom, baseZoom, clamp(6 * dt, 0, 1));
+  cam.zoom = lerp(cam.zoom, cam.tzoom, clamp(8 * dt, 0, 1));
+
   if (G.state === "play") {
-    if (cam.follow && G.ball && !G.ball.held) { tx = G.ball.x; ty = clamp(G.ball.y, GROUND_Y - 420, GROUND_Y - 120); }
-    else if (G.boss) { tx = G.boss.cx; ty = GROUND_Y - 220; }
-    else { tx = SLING_X + 260; ty = GROUND_Y - 170; }
     const halfW = (cssW / 2) / (S * cam.zoom);
+    if (cam.follow && G.ball && !G.ball.held) {
+      tx = G.ball.x; ty = clamp(G.ball.y, GROUND_Y - 420, GROUND_Y - 120);
+    } else {
+      // Keep the slingshot ~160 world-units from the left edge on ANY viewport
+      // so it is always visible and draggable (fixes off-screen sling on bosses).
+      tx = SLING_X + halfW - 160;
+      ty = G.boss ? GROUND_Y - 205 : GROUND_Y - 170;
+    }
     tx = clamp(tx, halfW - 120, Math.max(halfW - 120, G.fieldW - halfW + 120));
   }
   cam.x = lerp(cam.x, tx, clamp((cam.follow ? 7 : 4) * dt, 0, 1));
   cam.y = lerp(cam.y, ty, clamp(5 * dt, 0, 1));
-  cam.zoom = lerp(cam.zoom, cam.tzoom, clamp(8 * dt, 0, 1));
-  if (Math.abs(cam.zoom - cam.tzoom) < 0.002) cam.tzoom = 1;
   // shake
   if (cam.shT > 0) { cam.shT -= dt; const m = cam.shMag * (cam.shT / 0.35); cam.shx = rand(-1, 1) * m; cam.shy = rand(-1, 1) * m; } else { cam.shx *= 0.8; cam.shy *= 0.8; cam.shMag = 0; }
 
