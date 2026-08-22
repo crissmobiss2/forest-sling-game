@@ -1,11 +1,11 @@
 /* Forest Sling service worker — offline app-shell cache.
    Bump CACHE (and the ?v= asset queries) together on each release. */
-const CACHE = "forest-sling-v16";
+const CACHE = "forest-sling-v17";
 const ASSETS = [
   "./",
   "./index.html",
-  "./game.js?v=16",
-  "./style.css?v=16",
+  "./game.js?v=17",
+  "./style.css?v=17",
   "./manifest.webmanifest",
   "./icon-192.png",
   "./icon-512.png",
@@ -31,7 +31,18 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
-  if (url.origin !== location.origin) return; // let cross-origin (e.g. fonts) hit network normally
+
+  // Google Fonts (CSS + font files): cache-first so repeat loads are instant and work offline.
+  if (url.origin === "https://fonts.googleapis.com" || url.origin === "https://fonts.gstatic.com") {
+    e.respondWith(
+      caches.match(req).then((hit) =>
+        hit ||
+        fetch(req).then((res) => { const c = res.clone(); caches.open(CACHE).then((x) => x.put(req, c)); return res; }).catch(() => hit)
+      )
+    );
+    return;
+  }
+  if (url.origin !== location.origin) return; // other cross-origin: hit network normally
 
   const isHTML = req.mode === "navigate" || (req.headers.get("accept") || "").includes("text/html");
   if (isHTML) {

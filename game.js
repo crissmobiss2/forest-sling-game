@@ -132,7 +132,11 @@ function loadSave() {
 let saveTimer = null;
 function persist() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }, 250);
+  saveTimer = setTimeout(flushSave, 250);
+}
+function flushSave() {
+  clearTimeout(saveTimer);
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {}
 }
 function statMax(key, v) { if (v > (save.stats[key] || 0)) { save.stats[key] = v; persist(); checkAchievements(); } }
 function statAdd(key, v) { save.stats[key] = (save.stats[key] || 0) + v; persist(); checkAchievements(); }
@@ -259,13 +263,18 @@ const Audio = (function () {
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 let DPR = 1, cssW = 0, cssH = 0, S = 1;
+let bgGrad = {};   // cache for full-screen background gradients (rebuilt on resize/world change)
 const GROUND_Y = 600, SLING_X = 200, VIEW_H = 780;
 const GRAVITY = 1750;      // shared by the simulation AND the aim preview
 function resize() {
-  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  // Cap the backing-store resolution — high-DPR phones otherwise render a huge
+  // canvas every frame, which is the main cause of jank on mobile.
+  const coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+  DPR = Math.min(window.devicePixelRatio || 1, coarse ? 1.5 : 2);
   cssW = window.innerWidth; cssH = window.innerHeight;
   canvas.width = Math.floor(cssW * DPR); canvas.height = Math.floor(cssH * DPR);
   S = cssH / VIEW_H;
+  bgGrad = {};   // invalidate cached background gradients (size changed)
 }
 window.addEventListener("resize", resize);
 
@@ -1033,10 +1042,14 @@ function drawWindIndicator() {
 }
 
 function drawSky(w) {
-  const g = ctx.createLinearGradient(0, 0, 0, cssH);
-  g.addColorStop(0, shade(w.sky[0], w.night ? 0.0 : -0.07));
-  g.addColorStop(0.55, w.sky[0]);
-  g.addColorStop(1, w.sky[1]);
+  let g = bgGrad.sky;
+  if (!g || bgGrad.skyW !== w) {
+    g = ctx.createLinearGradient(0, 0, 0, cssH);
+    g.addColorStop(0, shade(w.sky[0], w.night ? 0.0 : -0.07));
+    g.addColorStop(0.55, w.sky[0]);
+    g.addColorStop(1, w.sky[1]);
+    bgGrad.sky = g; bgGrad.skyW = w;
+  }
   ctx.fillStyle = g; ctx.fillRect(0, 0, cssW, cssH);
   if (w.night) {
     ctx.fillStyle = "#fff";
@@ -1051,9 +1064,13 @@ function drawSky(w) {
 function drawSun(w) {
   const cx = cssW * 0.77, cy = cssH * 0.19, R = 54 * S;
   ctx.save(); ctx.globalCompositeOperation = "lighter";
-  const col = w.night ? "255,240,215" : "255,238,180";
-  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 5);
-  g.addColorStop(0, `rgba(${col},0.85)`); g.addColorStop(0.2, `rgba(${col},0.4)`); g.addColorStop(1, `rgba(${col},0)`);
+  let g = bgGrad.sun;
+  if (!g || bgGrad.sunW !== w) {
+    const col = w.night ? "255,240,215" : "255,238,180";
+    g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 5);
+    g.addColorStop(0, `rgba(${col},0.85)`); g.addColorStop(0.2, `rgba(${col},0.4)`); g.addColorStop(1, `rgba(${col},0)`);
+    bgGrad.sun = g; bgGrad.sunW = w;
+  }
   ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R * 5, 0, 6.28); ctx.fill();
   ctx.fillStyle = `rgba(255,252,238,${w.night ? 0.85 : 1})`;
   ctx.beginPath(); ctx.arc(cx, cy, R * 0.6, 0, 6.28); ctx.fill();
@@ -1141,8 +1158,12 @@ function drawCoinFX() {
   }
 }
 function drawVignette() {
-  const g = ctx.createRadialGradient(cssW / 2, cssH / 2, Math.min(cssW, cssH) * 0.36, cssW / 2, cssH / 2, Math.max(cssW, cssH) * 0.75);
-  g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,0.30)");
+  let g = bgGrad.vig;
+  if (!g) {
+    g = ctx.createRadialGradient(cssW / 2, cssH / 2, Math.min(cssW, cssH) * 0.36, cssW / 2, cssH / 2, Math.max(cssW, cssH) * 0.75);
+    g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,0.30)");
+    bgGrad.vig = g;
+  }
   ctx.fillStyle = g; ctx.fillRect(0, 0, cssW, cssH);
   if (G.combo >= 5) {
     const a = clamp((G.combo - 4) / 24, 0, 0.45);
@@ -1850,6 +1871,11 @@ function init() {
   toMenu();
   requestAnimationFrame(loop);
   window.addEventListener("pointerdown", () => Audio.init(), { once: false });
+  // Autosave safety net: the game persists on every change (debounced), but mobile
+  // browsers can freeze/kill a backgrounded tab before that fires — so flush now.
+  document.addEventListener("visibilitychange", () => { if (document.hidden) flushSave(); });
+  window.addEventListener("pagehide", flushSave);
+  window.addEventListener("blur", flushSave);
   // Capture the install prompt so the in-menu "Install App" button can trigger it.
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
