@@ -349,6 +349,10 @@ G.canAimAllowed = () => G.state === "play" && !G.ended && G.shotsLeft > 0;
 function fireBall(dirx, diry, power) {
   const b = G.ball; if (!b) return;
   const speed = power * 1700 * launchPowerFactor(save.power) * b.data.spd;
+  // Launch from the fork/pouch anchor (matches the trajectory preview) so a
+  // downward pull doesn't start the ball below ground and kill its velocity.
+  b.x = SLING_X; b.y = GROUND_Y - 18;
+  b.trail.length = 0;
   b.vx = dirx * speed; b.vy = diry * speed;
   b.held = false; b.launched = true;
   G.canAim = false; G.aim.active = false;
@@ -749,7 +753,8 @@ function updateAim(p) {
   const len = Math.hypot(dx, dy);
   if (len > 150) { dx = dx / len * 150; dy = dy / len * 150; }
   G.aim.wx = rest.x + dx; G.aim.wy = rest.y + dy;
-  if (G.ball) { G.ball.x = rest.x + dx; G.ball.y = rest.y + dy; }
+  // Keep the ball visually above the ground while aiming (power still uses the full pull).
+  if (G.ball) { G.ball.x = rest.x + dx; G.ball.y = Math.min(rest.y + dy, GROUND_Y - G.ball.r - 2); }
 }
 function pointFromEvent(e) {
   const r = canvas.getBoundingClientRect();
